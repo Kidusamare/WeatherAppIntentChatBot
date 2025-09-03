@@ -1,0 +1,57 @@
+intents:
+  greet:
+  - hey
+  - hello
+  - hi there
+  help:
+  - what can you do
+  - help
+  - how do I ask
+  get_current_weather:
+  - what's the weather in Austin
+  - weather now in San Marcos
+  - is it raining in Dallas
+  - current temperature for 78705
+  get_forecast:
+  - forecast for tomorrow in Austin
+  - 7 day forecast for San Marcos
+  - how hot will it be on sunday in Houston
+  - weather this weekend in College Station
+  get_alerts:
+  - any weather alerts for Austin
+  - are there warnings near 78666
+  - storm alerts in San Antonio
+  fallback:
+  - bluerg
+entities:
+  datetime:
+    keywords:
+      today:
+      - today
+      - tonight
+      - this evening
+      - this morning
+      - now
+      tomorrow:
+      - tomorrow
+      - tmrw
+      weekend:
+      - this weekend
+      days:
+      - monday
+      - tuesday
+      - wednesday
+      - thursday
+      - friday
+      - saturday
+      - sunday
+  units:
+    keywords:
+      imperial:
+      - f
+      - fahrenheit
+      - imperial
+      metric:
+      - c
+      - celsius
+      - metric
