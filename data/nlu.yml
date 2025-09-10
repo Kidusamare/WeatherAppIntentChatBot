@@ -12,15 +12,29 @@ intents:
   - weather now in San Marcos
   - is it raining in Dallas
   - current temperature for 78705
+  - weather now in Austin, TX
+  - what's the weather in San Antonio, TX right now
   get_forecast:
   - forecast for tomorrow in Austin
   - 7 day forecast for San Marcos
   - how hot will it be on sunday in Houston
   - weather this weekend in College Station
+  - forecast for tomorrow in San Marcos, TX
+  - forecast for tomorrow in Dallas, TX
+  - tonight in Austin, TX
+  - and tonight?
+  - how about tomorrow?
+  - tonight?
+  - what about tonight
+  - and tonight
+  - how about tonight
+  - tonight forecast
   get_alerts:
   - any weather alerts for Austin
   - are there warnings near 78666
   - storm alerts in San Antonio
+  - any weather alerts for Austin, TX?
+  - weather alerts for Dallas, TX
   fallback:
   - bluerg
 entities:

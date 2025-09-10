@@ -18,8 +18,9 @@ class IntentExample:
 
 class IntentClassifier:
     def __init__(self):
-        self.vectorizer = TfidfVectorizer(ngram_range=(1,2), min_df=1)
-        self.clf = LogisticRegression(max_iter=1000, class_weight="balanced")
+        # Slightly richer features to improve confidence on varied phrasings
+        self.vectorizer = TfidfVectorizer(ngram_range=(1,3), min_df=1)
+        self.clf = LogisticRegression(max_iter=2000, class_weight="balanced", C=3.0)
         self.trained = False
 
     def load_yaml(self, path: str) -> List[IntentExample]:
