@@ -9,43 +9,10 @@ from __future__ import annotations
 from typing import Optional, Tuple, List, Dict, Any
 import requests
 
-
-DEMO_GEOCODES: dict[str, tuple[float, float]] = {
-    "Austin, TX": (30.2672, -97.7431),
-    "San Marcos, TX": (29.8833, -97.9414),
-    "San Antonio, TX": (29.4241, -98.4936),
-    "Dallas, TX": (32.7767, -96.7970),
-}
+from tools.geocode import geocode
 
 
-def geocode(loc: str) -> Optional[Tuple[float, float]]:
-    """Return (lat, lon) for a demo location string or ZIP.
-
-    - Exact match on demo cities (case-insensitive key lookup)
-    - For 5-digit zip codes, map a couple of common TX zips to nearby cities
-      to keep the demo simple.
-    """
-    if not loc:
-        return None
-    key = loc.strip()
-    # Try canonical city match
-    for name, coords in DEMO_GEOCODES.items():
-        if name.lower() == key.lower():
-            return coords
-
-    # Minimal ZIP mapping to closest demo city
-    if key.isdigit() and len(key) == 5:
-        zip_to_city = {
-            "78701": "Austin, TX",
-            "78705": "Austin, TX",
-            "78666": "San Marcos, TX",
-            "78205": "San Antonio, TX",
-            "75201": "Dallas, TX",
-        }
-        city = zip_to_city.get(key)
-        if city:
-            return DEMO_GEOCODES[city]
-    return None
+"""Geocoding now delegated to tools.geocode.geocode(provider=demo|census)."""
 
 
 def _get_json(url: str) -> dict:
@@ -187,4 +154,3 @@ def get_alerts(loc: str) -> List[Dict[str, Any]]:
         return []
     except Exception:
         return []
-
