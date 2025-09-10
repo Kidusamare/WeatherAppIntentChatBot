@@ -7,6 +7,8 @@ forecast periods, and active alerts with basic error handling.
 from __future__ import annotations
 
 from typing import Optional, Tuple, List, Dict, Any
+import os
+import time
 import requests
 
 from tools.geocode import geocode
@@ -89,6 +91,24 @@ def _choose_period(periods: List[Dict[str, Any]], when: str) -> Optional[Dict[st
     return periods[0]
 
 
+_FORECAST_CACHE: dict[tuple[str, str], tuple[dict, float]] = {}
+_ALERTS_CACHE: dict[str, tuple[List[Dict[str, Any]], float]] = {}
+
+
+def _forecast_ttl() -> int:
+    try:
+        return int(os.getenv("FORECAST_TTL_SECONDS", "600"))
+    except ValueError:
+        return 600
+
+
+def _alerts_ttl() -> int:
+    try:
+        return int(os.getenv("ALERTS_TTL_SECONDS", "120"))
+    except ValueError:
+        return 120
+
+
 def get_forecast(loc: str, when: str = "today") -> dict:
     """Return a dict with selected forecast period info for the location.
 
@@ -101,6 +121,13 @@ def get_forecast(loc: str, when: str = "today") -> dict:
         return {"error": f"Unknown location: {loc}"}
     lat, lon = coords
     try:
+        # Cache by (normalized location, when)
+        key = (str(loc).strip().title(), (when or "today").lower())
+        now = time.time()
+        ttl = _forecast_ttl()
+        hit = _FORECAST_CACHE.get(key)
+        if hit and hit[1] > now:
+            return hit[0]
         pts = nws_points(lat, lon)
         forecast_url = (
             pts.get("properties", {}).get("forecast")
@@ -116,13 +143,15 @@ def get_forecast(loc: str, when: str = "today") -> dict:
         short = period.get("shortForecast") or "Forecast unavailable"
         temp = period.get("temperature")
         unit = period.get("temperatureUnit") or "F"
-        return {
+        result = {
             "location": loc,
             "period": name,
             "shortForecast": short,
             "temperature": temp,
             "unit": unit,
         }
+        _FORECAST_CACHE[key] = (result, now + ttl)
+        return result
     except requests.RequestException as e:
         return {"error": f"HTTP error: {e}"}
     except Exception as e:  # defensive
@@ -139,6 +168,12 @@ def get_alerts(loc: str) -> List[Dict[str, Any]]:
         return []
     lat, lon = coords
     try:
+        key = str(loc).strip().title()
+        now = time.time()
+        ttl = _alerts_ttl()
+        hit = _ALERTS_CACHE.get(key)
+        if hit and hit[1] > now:
+            return hit[0]
         url = f"https://api.weather.gov/alerts/active?point={lat:.4f},{lon:.4f}"
         data = _get_json(url)
         feats = data.get("features", []) or []
@@ -149,6 +184,7 @@ def get_alerts(loc: str) -> List[Dict[str, Any]]:
             hl = props.get("headline")
             if ev or hl:
                 out.append({"event": ev, "headline": hl})
+        _ALERTS_CACHE[key] = (out, now + ttl)
         return out
     except requests.RequestException:
         return []

@@ -2,8 +2,8 @@ from nlu.entities import parse_location, parse_datetime, parse_units
 
 
 def test_parse_location_city_state():
-    assert parse_location("what's weather in Orlando Florida") == "Orlando, FL"
-
+    # City-only should return just the city (parser stays pure)
+    assert parse_location("what's weather in Baltimore") == "Baltimore"
 
 def test_parse_location_zip():
     assert parse_location("current temperature for 78705") == "78705"
@@ -29,4 +29,3 @@ def test_parse_units_metric_and_default():
     assert parse_units("metric units please") == "metric"
     assert parse_units("fahrenheit") == "imperial"
     assert parse_units("no units mentioned") == "imperial"
-

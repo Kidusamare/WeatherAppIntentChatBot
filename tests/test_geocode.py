@@ -5,7 +5,7 @@ from tools.geocode import geocode, DEMO_GEOCODES
 def test_demo_geocode(monkeypatch):
     monkeypatch.setenv("GEO_PROVIDER", "demo")
     # Use a known demo city
-    latlon = geocode("Austin, TX")
+    latlon = geocode("Austin")
     assert latlon == DEMO_GEOCODES["Austin, TX"]
 
 

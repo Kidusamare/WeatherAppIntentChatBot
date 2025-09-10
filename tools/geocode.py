@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from typing import Optional, Tuple
-from functools import lru_cache
+import time
 import requests
 
 
@@ -12,6 +12,19 @@ DEMO_GEOCODES: dict[str, tuple[float, float]] = {
     "San Marcos, TX": (29.8833, -97.9414),
     "San Antonio, TX": (29.4241, -98.4936),
     "Dallas, TX": (32.7767, -96.7970),
+    # A couple more for convenience
+    "Baltimore, MD": (39.2904, -76.6122),
+    "Orlando, FL": (28.5383, -81.3792),
+}
+
+# Optional hints to expand city-only queries to City, ST (US-only convenience)
+CITY_TO_STATE = {
+    "baltimore": "MD",
+    "orlando": "FL",
+    "austin": "TX",
+    "dallas": "TX",
+    "san antonio": "TX",
+    "san marcos": "TX",
 }
 
 
@@ -20,6 +33,10 @@ class DemoGeocoder:
         if not loc:
             return None
         key = loc.strip()
+        # Expand city-only using hints, if applicable
+        low = key.lower()
+        if "," not in key and low in CITY_TO_STATE:
+            key = f"{key.title()}, {CITY_TO_STATE[low]}"
         for name, coords in DEMO_GEOCODES.items():
             if name.lower() == key.lower():
                 return coords
@@ -52,8 +69,13 @@ class CensusGeocoder:
     def resolve(self, loc: str) -> Optional[Tuple[float, float]]:
         if not loc:
             return None
+        # Expand city-only using hints as a nicety (still works without)
+        key = loc.strip()
+        low = key.lower()
+        if "," not in key and low in CITY_TO_STATE:
+            key = f"{key.title()}, {CITY_TO_STATE[low]}"
         params = {
-            "address": loc,
+            "address": key,
             "benchmark": self.BENCHMARK,
             "format": "json",
         }
@@ -93,7 +115,16 @@ def _provider():
     return DemoGeocoder()
 
 
-@lru_cache(maxsize=256)
+_CACHE: dict[str, tuple[Optional[Tuple[float, float]], float]] = {}
+
+
+def _ttl_seconds() -> int:
+    try:
+        return int(os.getenv("GEOCODE_TTL_SECONDS", "3600"))
+    except ValueError:
+        return 3600
+
+
 def geocode(loc: str) -> Optional[Tuple[float, float]]:
     """Return (lat, lon) for a location string using the selected provider.
 
@@ -105,6 +136,13 @@ def geocode(loc: str) -> Optional[Tuple[float, float]]:
     """
     if not loc:
         return None
+    key = loc.strip()
+    now = time.time()
+    ttl = _ttl_seconds()
+    hit = _CACHE.get(key)
+    if hit and hit[1] > now:
+        return hit[0]
     prov = _provider()
-    return prov.resolve(loc)
-
+    val = prov.resolve(key)
+    _CACHE[key] = (val, now + ttl)
+    return val
