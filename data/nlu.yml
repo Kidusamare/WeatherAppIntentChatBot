@@ -3,11 +3,46 @@ intents:
   - hey
   - hello
   - hi there
-  - whats up
+  - hey there
+  - hi
+  - yo
+  - good morning
+  - good afternoon
+  - good evening
+  - sup
+  - howdy
+  - hey bot
+  - hi, bot
+  - hello there
+  - greetings
+  - what's up
+  - hey! any weather?
+  - hi! weather helper?
+  - morning!
+  - evening!
+
   help:
   - what can you do
   - help
   - how do I ask
+  - show me examples
+  - how does this work
+  - what can I ask about
+  - which commands do you support
+  - how to get a forecast
+  - can you explain your features
+  - need instructions
+  - how do I ask for alerts
+  - what locations do you support
+  - do you remember my city
+  - what kind of weather can you tell me
+  - how to check current weather
+  - tips
+  - give me help
+  - usage
+  - i need help
+  - show help
+
   get_current_weather:
   - what's the weather in Austin
   - weather now in San Marcos
@@ -15,6 +50,38 @@ intents:
   - current temperature for 78705
   - weather now in Austin, TX
   - what's the weather in San Antonio, TX right now
+  - temperature now in Orlando, FL
+  - how hot is it in Baltimore right now
+  - current conditions for 75201
+  - tell me if it's snowing in Denver, CO
+  - weather conditions in New York, NY
+  - what's it like outside in Chicago, IL
+  - do I need a jacket in Seattle
+  - show current weather for Miami, FL
+  - current temp in Phoenix, AZ
+  - is it windy in Kansas City, MO
+  - is it humid in Houston, TX now
+  - current weather report for Los Angeles, CA
+  - what's the temperature in Boston, MA right now
+  - what's the weather like in Austin today
+  - current weather for baltimore
+  - rain right now in Portland, OR
+  - any precipitation in San Diego, CA
+  - give me the weather now for San Marcos, TX
+  - how cold is it in Minneapolis, MN
+  - is it sunny in Tampa, FL right now
+  - weather now for 78666
+  - what's happening outside in Dallas
+  - now weather in Austin, TX
+  - weather currently in San Antonio
+  - current weather near 78701
+  - right now in Orlando
+  - current weather in Baltimore, MD
+  - current conditions in Austin please
+  - check weather now for San Marcos, TX
+  - whats the temp now in Dallas
+  - how is the weather now in Austin
+
   get_forecast:
   - forecast for tomorrow in Austin
   - 7 day forecast for San Marcos
@@ -30,16 +97,93 @@ intents:
   - and tonight
   - how about tonight
   - tonight forecast
-  - Austin weather tommorow
-  - Dallas tommorow
+  - forecast for tonight in Orlando, FL
+  - weekend outlook for Baltimore, MD
+  - will it rain tomorrow in Seattle
+  - is it going to snow on friday in Denver
+  - what's the weather like next monday in Austin, TX
+  - give me the forecast for Tuesday in Dallas
+  - outlook for this weekend in San Antonio, TX
+  - forecast next week in New York, NY
+  - show the 7-day for Austin
+  - 5 day forecast for Orlando
+  - what will the temperature be on wednesday in Boston
+  - will it be windy tomorrow in Chicago
+  - how warm will saturday be in Miami
+  - forecast for thursday in Phoenix
+  - will it be cold on monday in Minneapolis
+  - weather for sunday afternoon in Los Angeles
+  - any rain tonight in Portland, OR
+  - chance of rain this weekend in Tampa, FL
+  - tell me tomorrow's forecast for San Marcos, TX
+  - what's coming up later today in Austin
+  - late tonight in Dallas, TX
+  - what about tomorrow morning in Austin
+  - how about this weekend in Baltimore
+  - can I see the forecast for Denver
+  - need the outlook for Houston this weekend
+  - weather tomorrow in San Antonio
+  - weather friday in Dallas
+  - weather on saturday in Austin, TX
+  - forecast for monday in Orlando, FL
+  - give me this weekend's forecast in Austin
+  - how about sunday night in Austin
+  - daytime tomorrow in Austin
+  - this evening in San Marcos
+  - later today in Dallas
+  - the forecast for tuesday morning in Austin
+  - outlook this friday in San Antonio
+  - will sunday be hot in Phoenix
+  - will tomorrow be cold in Boston
+  - tell me if it will rain on wednesday in Seattle
+  - forecast for baltimore this weekend
+  - forecast for next weekend in Orlando
+  - monday forecast in Austin
+  - thursday night forecast in Dallas
+
   get_alerts:
   - any weather alerts for Austin
   - are there warnings near 78666
   - storm alerts in San Antonio
   - any weather alerts for Austin, TX?
   - weather alerts for Dallas, TX
+  - show active alerts for Orlando, FL
+  - are there watches or warnings in Houston right now
+  - any advisories for Baltimore, MD
+  - list alerts in Dallas
+  - do we have a tornado warning in Oklahoma City
+  - flood warnings for Miami, FL
+  - are there severe weather alerts in Austin
+  - check alerts near 78705
+  - give me active alerts for San Marcos, TX
+  - alerts in San Antonio today
+  - show me warnings in Denver, CO
+  - any active weather warnings for Seattle
+  - do we have heat advisories in Phoenix
+  - any wind advisories for Chicago
+  - alert status for New York, NY
+
   fallback:
   - bluerg
+  - asdfghjkl
+  - what is the color of sound
+  - pizza weatherify later?
+  - "!!@# random"
+  - banana forecast meow
+  - qwertyuiop
+  - lorem ipsum dolor sit amet
+  - zigzag weather now?
+  - just chatting
+  - tell me a joke
+  - sing me a song
+  - i like turtles
+  - unrelated question
+  - potato tomorrow?
+  - not making sense
+  - babble text
+  - colorless green ideas sleep furiously
+  - keyboard smash
+  - "./,.;'[[]"
 entities:
   datetime:
     keywords:
