@@ -1,0 +1,23 @@
+examples:
+  - text: "what's the weather in Austin, TX right now"
+    intent: get_current_weather
+  - text: "current temperature for 78705"
+    intent: get_current_weather
+  - text: "is it raining in Dallas"
+    intent: get_current_weather
+  - text: "forecast for tomorrow in San Marcos, TX"
+    intent: get_forecast
+  - text: "and tonight?"
+    intent: get_forecast
+  - text: "weekend outlook for Baltimore, MD"
+    intent: get_forecast
+  - text: "any weather alerts for Austin, TX?"
+    intent: get_alerts
+  - text: "are there warnings near 78666"
+    intent: get_alerts
+  - text: "help"
+    intent: help
+  - text: "hello"
+    intent: greet
+  - text: "qwertyuiop"
+    intent: fallback

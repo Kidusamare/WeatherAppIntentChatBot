@@ -1,2 +1,7 @@
 pytest
 pytest-cov
+pandas
+numpy
+jupyter
+ipykernel
+jupyterlab

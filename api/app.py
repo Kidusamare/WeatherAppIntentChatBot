@@ -1,11 +1,17 @@
 import time
 import os
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv()
+except Exception:
+    pass
 from fastapi import FastAPI
 from pydantic import BaseModel
 from nlu.intent_model import IntentClassifier
 from nlu.entities import parse_location, parse_datetime, parse_units
 from core.policy import respond
 from metrics.log import log_interaction
+from nlu.loc_extractor import _get_nlp as _loc_spacy
 from tools import geocode as gc
 from tools import weather_nws as nws
 
@@ -27,6 +33,8 @@ def health():
     return {
         "status": "ok",
         "geo_provider": gc._provider_name(),
+        "location_backend": (os.getenv("LOCATION_BACKEND") or "spacy"),
+        "spacy_loaded": bool(_loc_spacy()),
         "ttl": {
             "geocode": gc._ttl_seconds(),
             "forecast": nws._forecast_ttl(),

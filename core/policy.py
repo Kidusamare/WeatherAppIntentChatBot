@@ -1,19 +1,35 @@
-"""Simple dialogue policy that uses NLU outputs to craft user replies.
+"""Dialogue policy that turns intents + entities into user-facing replies.
 
-Handles memory of last location per session and calls NWS client for
-forecasts and alerts.
+Capabilities
+- Greeting/help replies with lightweight on-rails guidance.
+- Current weather and forecast replies via NWS tools with TTL caching upstream.
+- Alerts listing with friendly nudge; bullet formatting preserved for tests.
+- Session memory of last location (canonical City, ST if available).
+- Deterministic reply variants to keep tone lively but predictable per session.
 """
 
 from __future__ import annotations
 
-from typing import Dict, Any
+from typing import Dict, Any, List
+import re
+import hashlib
 
 from core.memory import get_mem, set_mem
 from tools.weather_nws import get_forecast, get_alerts
+from tools.geocode import canonicalize_location
 
 
 def _need_location_reply() -> str:
     return "What city and state? (e.g., Austin, TX)"
+
+
+def _is_zip(loc: str) -> bool:
+    return bool(loc and loc.isdigit() and len(loc) == 5)
+
+
+def _is_city_state(loc: str) -> bool:
+    # Accept letters, spaces and dots/hyphens in city names, and a 2-letter state
+    return bool(re.match(r"^[A-Za-z][A-Za-z .-]*,\s*[A-Z]{2}$", loc or ""))
 
 
 def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str) -> str:
@@ -25,29 +41,56 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
 
     intent = intent or "fallback"
 
+    # Check for pending intent context (e.g., user provided location after a prompt)
+    pending_intent = get_mem(session_id, "pending_intent")
+    pending_when = get_mem(session_id, "pending_when")
+
+    # Small deterministic variant picker to keep replies lively but stable per session
+    def _pick(options: List[str], key: str = "") -> str:
+        if not options:
+            return ""
+        h = hashlib.md5(f"{session_id}|{key}".encode()).hexdigest()
+        idx = int(h, 16) % len(options)
+        return options[idx]
+
     # Greeting/help
     if intent == "greet":
-        return (
-            "Hi! Ask me about current weather, a forecast, or alerts. "
-            "Example: 'forecast for tomorrow in Austin, TX'"
-        )
+        variants = [
+            "Hi! Ask me about current weather, a forecast, or alerts. Example: 'forecast for tomorrow in Austin, TX'",
+            "Hello! I can check weather now, forecasts, and alerts. Try: 'weather now in Austin, TX'",
+            "Hey there! I can give you current conditions, a forecast, or alerts. For example: 'any alerts for Dallas, TX?'",
+        ]
+        return _pick(variants, key="greet")
     if intent == "help":
-        return (
-            "You can ask for current weather, forecasts (today, tonight, tomorrow, weekday), "
-            "or alerts. Include a city like 'San Marcos, TX'."
-        )
+        options = [
+            "You can ask for current weather, forecasts (today/tonight/tomorrow/weekday), or alerts. Include a city like 'San Marcos, TX'.",
+            "Try things like: 'weather now in Austin, TX', 'and tonight?', or 'any weather alerts for Dallas, TX?'",
+        ]
+        return _pick(options, key="help")
 
     # Common location resolution for weather/alerts
     loc = entities.get("location") if entities else None
     if loc:
-        set_mem(session_id, "last_location", loc)
+        can_loc = canonicalize_location(loc)
+        # Store canonical location if it includes a state, otherwise keep raw
+        if _is_city_state(can_loc):
+            set_mem(session_id, "last_location", can_loc)
+        loc = can_loc
     else:
         loc = get_mem(session_id, "last_location")
 
     if intent in {"get_current_weather", "get_forecast"}:
         if low_conf and not (loc and entities and entities.get("datetime")):
+            # Remember pending ask so a follow-up location can complete the request
+            set_mem(session_id, "pending_intent", intent)
+            when_hint = (entities.get("datetime") if entities else None) or "today"
+            set_mem(session_id, "pending_when", when_hint)
             return "Do you want current weather, a forecast, or alerts?"
         if not loc:
+            # Remember what we're after and ask for City, ST
+            set_mem(session_id, "pending_intent", intent)
+            when_hint = (entities.get("datetime") if entities else None) or "today"
+            set_mem(session_id, "pending_when", when_hint)
             return _need_location_reply()
         when = (entities.get("datetime") if entities else None) or "today"
         # Treat current weather as 'today' first period
@@ -73,7 +116,18 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
                 temp = round((temp * 9 / 5) + 32)
                 display_unit = "F"
         temp_part = f" Around {temp}°{display_unit}." if temp is not None else ""
-        return f"{period} in {loc}: {short}.{temp_part}".strip()
+        base = f"{period} in {loc}: {short}.{temp_part}".strip()
+        # Add a gentle, deterministic suggestion variant
+        suffix = _pick([
+            "",
+            " You can ask for alerts, too.",
+            " Want the weekend outlook as well?",
+            " Need it in Celsius or Fahrenheit?",
+        ], key="wx_suffix")
+        # Clear pending upon success
+        set_mem(session_id, "pending_intent", None)
+        set_mem(session_id, "pending_when", None)
+        return (base + suffix).strip()
 
     if intent == "get_alerts":
         if low_conf and not loc:
@@ -84,10 +138,64 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
         if not alerts:
             return f"No active alerts for {loc}."
         lines = [f"- {a.get('event') or 'Alert'}: {a.get('headline') or ''}" for a in alerts]
-        return f"Active alerts for {loc}:\n" + "\n".join(lines)
+        # Keep the header stable for tests, add a friendly nudge afterwards
+        body = f"Active alerts for {loc}:\n" + "\n".join(lines)
+        tail = _pick(["", "\nStay safe. Ask for a forecast if you need details."], key="alerts_tail")
+        # Clear pending upon success
+        set_mem(session_id, "pending_intent", None)
+        set_mem(session_id, "pending_when", None)
+        return body + tail
+
+    # If the user supplied a location but classifier didn't catch intent,
+    # use any pending intent from the previous turn
+    if pending_intent and loc:
+        # Re-enter with the pending intent and hint
+        if pending_intent == "get_forecast" or pending_intent == "get_current_weather":
+            when = pending_when or ((entities.get("datetime") if entities else None) or "today")
+            if pending_intent == "get_current_weather":
+                when = "today"
+            fc = get_forecast(loc, when)
+            if "error" in fc:
+                return f"Sorry, I couldn't fetch the forecast for {loc}. {fc['error']}"
+            period = fc.get("period") or str(when).title()
+            short = fc.get("shortForecast") or "Forecast unavailable"
+            temp = fc.get("temperature")
+            fc_unit = (fc.get("unit") or "F").upper()
+            requested_units = (entities.get("units") if entities else None) or "imperial"
+            display_unit = fc_unit
+            if temp is not None:
+                if requested_units == "metric" and fc_unit == "F":
+                    temp = round((temp - 32) * 5 / 9)
+                    display_unit = "C"
+                elif requested_units == "imperial" and fc_unit == "C":
+                    temp = round((temp * 9 / 5) + 32)
+                    display_unit = "F"
+            temp_part = f" Around {temp}°{display_unit}." if temp is not None else ""
+            base = f"{period} in {loc}: {short}.{temp_part}".strip()
+            suffix = _pick([
+                "",
+                " You can ask for alerts, too.",
+                " Want the weekend outlook as well?",
+                " Need it in Celsius or Fahrenheit?",
+            ], key="wx_suffix")
+            set_mem(session_id, "pending_intent", None)
+            set_mem(session_id, "pending_when", None)
+            return (base + suffix).strip()
+        if pending_intent == "get_alerts":
+            alerts = get_alerts(loc)
+            if not alerts:
+                set_mem(session_id, "pending_intent", None)
+                set_mem(session_id, "pending_when", None)
+                return f"No active alerts for {loc}."
+            lines = [f"- {a.get('event') or 'Alert'}: {a.get('headline') or ''}" for a in alerts]
+            body = f"Active alerts for {loc}:\n" + "\n".join(lines)
+            tail = _pick(["", "\nStay safe. Ask for a forecast if you need details."], key="alerts_tail")
+            set_mem(session_id, "pending_intent", None)
+            set_mem(session_id, "pending_when", None)
+            return body + tail
 
     # Fallback/help
-    return (
-        "I can help with current weather, forecasts (today/tonight/tomorrow/weekday), "
-        "and weather alerts. Try: 'weather now in Austin, TX'"
-    )
+    return _pick([
+        "I can help with current weather, forecasts (today/tonight/tomorrow/weekday), and weather alerts. Try: 'weather now in Austin, TX'",
+        "Ask me for current conditions, a forecast (like 'tomorrow in Dallas, TX'), or alerts.",
+    ], key="fallback")

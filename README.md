@@ -25,17 +25,25 @@ pip install -r requirements-dev.txt
 pytest -q --cov=weather-bot --cov-report=term-missing
 ```
 
+### Evaluation
+- Add examples to `data/eval.yml` (a starter file is included).
+- Run:
+```bash
+python scripts/eval.py --train data/nlu.yml --eval data/eval.yml
+```
+This prints a classification report, confusion matrix, and per‑example confidences.
+
 ### Geocoding Providers
-- Demo (default, offline): a tiny static map good for quick demos/tests.
-- US Census (US-only, online): resolves arbitrary US addresses/cities.
+- US Census (default, US-only, online): resolves arbitrary US addresses/cities.
+- Demo (offline): a tiny static map good for quick tests; not recommended for real usage.
 
 Select provider with an env var:
 ```bash
-# default: demo
-export GEO_PROVIDER=demo
-
-# use US Census Geocoder
+# default: census
 export GEO_PROVIDER=census
+
+# offline demo map
+export GEO_PROVIDER=demo
 export USER_AGENT="weather-bot/0.1 (you@example.com)"  # polite header
 ```
 
@@ -89,6 +97,7 @@ Geocoding details:
     - `GEOCODE_TTL_SECONDS` (default 3600s)
     - `FORECAST_TTL_SECONDS` (default 600s)
     - `ALERTS_TTL_SECONDS` (default 120s)
+  - Datetime parsing enhanced: supports phrases like “this afternoon/evening/morning”, “later today”, and “tomorrow morning/night”.
 
 ## Known limitations
 - Demo geocoding (offline) or US Census (online). If a location is unknown, the bot asks for a City, ST.
@@ -106,11 +115,21 @@ docker run --rm -p 8000:8000 weather-bot
 ```
 
 ## Demo Script
-Run a short scripted demo, then interact in the terminal (uses the same NLU + policy as the API):
+Interactive terminal chat that uses the same NLU + policy as the API:
 ```bash
-python scripts/demo_script.py
+python scripts/chat_demo.py
 ```
-Tip: You can also run from the repo root via `python weather-bot/scripts/demo_script.py`. The scripts add the project path so local `nlu` is used.
+Tip: You can also run from the repo root via `python weather-bot/scripts/chat_demo.py`. The scripts add the project path so local `nlu` is used.
+
+Inspector and spaCy parser test:
+```bash
+# Inspect how a prompt is parsed and geocoded (no reply policy)
+python scripts/inspect_prompt.py
+
+# Test only the spaCy location parser interactively or with args
+python scripts/test_spacy_location.py
+python scripts/test_spacy_location.py "tomorrow in silver spring maryland" "forecast for new york"
+```
 
 ## Health Metadata
 `/health` also returns provider and TTL details to aid debugging, for example:
@@ -128,3 +147,14 @@ Tip: You can also run from the repo root via `python weather-bot/scripts/demo_sc
 - Tests: add coverage reporting (`pytest-cov`) and a non-empty alerts test case.
 - UX: tiny web chat page or screenshots; curated demo script (6–8 turns) showing memory and units.
 - Config: minimal logging with request IDs and provider selection echo in `/health`.
+### Environment (.env)
+- A `.env` file with sensible defaults is included. The app and chat demo load it automatically.
+- Replace `USER_AGENT` with your contact info to comply with NWS/Census policies.
+- Common variables:
+  - `INTENT_BACKEND` (tfidf|bert)
+  - `GEO_PROVIDER` (demo|census)
+  - `USER_AGENT` (e.g., `weather-bot/0.1 (you@example.com)`)
+  - `GEOCODE_TTL_SECONDS`, `FORECAST_TTL_SECONDS`, `ALERTS_TTL_SECONDS`
+  - `WEATHER_BOT_DB_PATH`
+  - `HF_MODEL_NAME`, `HF_DEVICE`, `CENSUS_GEOCODER_URL`, `CENSUS_BENCHMARK`
+  - `GEOCODE_DEBUG=1` (optional) to print provider, cache hits, and results

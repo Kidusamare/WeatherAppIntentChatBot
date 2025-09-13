@@ -1,7 +1,8 @@
 """Minimal National Weather Service (NWS) client utilities.
 
-Demo-only geocoding for a few Texas cities. Fetches point metadata,
-forecast periods, and active alerts with basic error handling.
+Geocoding is delegated to ``tools.geocode.geocode`` (demo or Census provider).
+Fetches point metadata, forecast periods, and active alerts with basic error
+handling and lightweight caching (forecast/alerts TTLs).
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ from __future__ import annotations
 from typing import Optional, Tuple, List, Dict, Any
 import os
 import time
+import sys
 import requests
 
 from tools.geocode import geocode
@@ -18,11 +20,14 @@ from tools.geocode import geocode
 
 
 def _get_json(url: str) -> dict:
+    ua = os.getenv("USER_AGENT", "weather-bot/0.1 (demo@example.com)")
     headers = {
-        # NWS requires a User-Agent with contact per policy; using generic demo.
-        "User-Agent": "weather-bot/0.1 (demo@example.com)",
+        # NWS requires a User-Agent with contact per policy
+        "User-Agent": ua,
         "Accept": "application/geo+json, application/json",
     }
+    if os.getenv("WEATHER_BOT_DEBUG") in {"1", "true", "yes", "on"}:
+        print(f"[nws] GET {url}", file=sys.stderr)
     resp = requests.get(url, headers=headers, timeout=10)
     resp.raise_for_status()
     return resp.json()  # type: ignore[return-value]
@@ -51,6 +56,23 @@ def _choose_period(periods: List[Dict[str, Any]], when: str) -> Optional[Dict[st
         for i, n in enumerate(lower):
             if "tonight" in n:
                 return periods[i]
+
+    # Today morning/afternoon/evening variants
+    if w in {"today_morning", "today_afternoon", "today_evening"}:
+        targets = {
+            "today_morning": ["morning"],
+            "today_afternoon": ["afternoon"],
+            "today_evening": ["evening", "tonight"],
+        }[w]
+        for i, n in enumerate(lower[:4]):  # typically within first few periods
+            if any(t in n for t in targets):
+                return periods[i]
+        # fallback to today first period or tonight
+        if w == "today_evening":
+            for i, n in enumerate(lower):
+                if "tonight" in n:
+                    return periods[i]
+        return periods[0]
 
     # weekend → first Saturday/Sunday mention
     if w == "weekend":
@@ -86,6 +108,22 @@ def _choose_period(periods: List[Dict[str, Any]], when: str) -> Optional[Dict[st
         for i, n in enumerate(lower):
             if "night" not in n and "tonight" not in n and n not in {"today"}:
                 return periods[i]
+
+    # Tomorrow morning/night specificity
+    if w in {"tomorrow_morning", "tomorrow_night"}:
+        # Start after any Today periods; pick first suitable for morning (non-night) or night
+        start = 1 if lower and (lower[0] == "today" or lower[0].startswith("today")) else 0
+        # Find first non-night (morning/day)
+        if w == "tomorrow_morning":
+            for i in range(start, len(periods)):
+                n = lower[i]
+                if ("night" not in n and "tonight" not in n) and n not in {"today"}:
+                    return periods[i]
+        else:  # tomorrow_night
+            for i in range(start, len(periods)):
+                n = lower[i]
+                if "night" in n or "evening" in n:
+                    return periods[i]
 
     # Fallback to first period if no match
     return periods[0]
