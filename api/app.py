@@ -2,7 +2,11 @@ import time
 import os
 from fastapi import FastAPI
 from pydantic import BaseModel
-from nlu.intent_model import IntentClassifier
+INTENT_BACKEND = os.getenv("INTENT_BACKEND", "bert").lower()
+if INTENT_BACKEND == "bert":
+    from nlu.intent_hf import HFIntentClassifier as IntentClassifier
+else:
+    from nlu.intent_model import IntentClassifier
 from nlu.entities import parse_location, parse_datetime, parse_units
 from core.policy import respond
 from metrics.log import log_interaction

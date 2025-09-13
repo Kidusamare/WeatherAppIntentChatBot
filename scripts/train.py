@@ -6,9 +6,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from nlu.intent_model import IntentClassifier
+from nlu import get_intent_classifier
 def main():
-    clf = IntentClassifier()
+    clf = get_intent_classifier()
     examples = clf.load_yaml("data/nlu.yml")
     clf.fit(examples)
     print(f"Trained on {len(examples)} examples.")

@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from nlu.intent_model import IntentClassifier
+from nlu import get_intent_classifier
 from nlu.entities import parse_location, parse_datetime, parse_units
 from core.policy import respond
 
@@ -25,7 +25,7 @@ SCRIPT = [
 
 
 def run_script(session_id: str) -> None:
-    clf = IntentClassifier()
+    clf = get_intent_classifier()
     examples = clf.load_yaml("data/nlu.yml")
     clf.fit(examples)
 
@@ -45,7 +45,7 @@ def run_script(session_id: str) -> None:
 
 def interactive(session_id: str) -> None:
     print("\nInteractive mode. Type 'exit' to quit.")
-    clf = IntentClassifier()
+    clf = get_intent_classifier()
     examples = clf.load_yaml("data/nlu.yml")
     clf.fit(examples)
     while True:

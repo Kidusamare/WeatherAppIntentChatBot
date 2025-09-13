@@ -1,4 +1,5 @@
 import sys
+import os
 from pathlib import Path
 import pytest
 
@@ -16,3 +17,7 @@ def clear_session_memory():
         SESSION.clear()
     except Exception:
         pass
+
+
+# Force TF-IDF backend for tests to avoid model downloads
+os.environ.setdefault("INTENT_BACKEND", "tfidf")

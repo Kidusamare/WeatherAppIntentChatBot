@@ -3,7 +3,8 @@
 Intent-driven chatbot that fetches forecasts and alerts from the US National Weather Service (api.weather.gov), with tiny dialogue policy and in-process session memory.
 
 ## Features
-- TF‑IDF + Logistic Regression intent classifier
+- Optional BERT backend (Hugging Face) for intents — now default
+- TF‑IDF + Logistic Regression intent classifier (secondary, offline-friendly)
 - Regex/keyword entities: location (City, ST or demo ZIPs), datetime (today/tonight/tomorrow/weekday/weekend), units (no conversion yet)
 - Session memory: remembers last location per `session_id`
 - NWS client: points → forecast periods; active alerts by lat/lon
@@ -13,7 +14,7 @@ Intent-driven chatbot that fetches forecasts and alerts from the US National Wea
 ## Setup
 ```bash
 python -m venv .venv && source .venv/bin/activate  # or .venv\Scripts\activate on Windows
-pip install -r requirements.txt
+pip install -r requirements.txt   # includes transformers + torch
 uvicorn api.app:app --reload
 ```
 
@@ -23,6 +24,23 @@ For tests and coverage:
 ```bash
 pip install -r requirements-dev.txt
 pytest -q --cov=weather-bot --cov-report=term-missing
+```
+
+### Intent Classifier Backends
+- Default: Hugging Face BERT embeddings + linear head
+- Optional: TF‑IDF + Logistic Regression (fast, offline)
+
+Select backend with an env var:
+```bash
+# default: bert
+export INTENT_BACKEND=bert
+export HF_MODEL_NAME=distilbert-base-uncased   # optional override
+export HF_DEVICE=cpu                           # or cuda if available
+```
+
+To use the offline TF‑IDF backend:
+```bash
+export INTENT_BACKEND=tfidf
 ```
 
 ### Geocoding Providers

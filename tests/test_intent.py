@@ -1,3 +1,5 @@
+import os
+os.environ.setdefault("INTENT_BACKEND", "tfidf")
 from nlu.intent_model import IntentClassifier
 from fastapi.testclient import TestClient
 from api.app import app
