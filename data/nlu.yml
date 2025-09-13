@@ -3,6 +3,7 @@ intents:
   - hey
   - hello
   - hi there
+  - whats up
   help:
   - what can you do
   - help
@@ -29,6 +30,8 @@ intents:
   - and tonight
   - how about tonight
   - tonight forecast
+  - Austin weather tommorow
+  - Dallas tommorow
   get_alerts:
   - any weather alerts for Austin
   - are there warnings near 78666
