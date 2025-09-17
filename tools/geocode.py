@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import os
-import difflib
 from typing import Optional, Tuple
 import time
-import requests
 import re
 import sys
 try:
@@ -16,10 +14,9 @@ try:
 except Exception:  # pragma: no cover
     rf_process = None  # type: ignore
     rf_fuzz = None  # type: ignore
-import sys
 
 
-# Deprecated: demo geocodes removed in favor of local CSV-based geocoder.
+
 
 # Optional hints to expand city-only queries to City, ST (US-only convenience)
 CITY_TO_STATE = {
@@ -232,13 +229,9 @@ def _ttl_seconds() -> int:
 
 
 def geocode(loc: str) -> Optional[Tuple[float, float]]:
-    """Return (lat, lon) for a location string using the selected provider.
+    """Return (lat, lon) for a location string using the local CSV geocoder.
 
-    Providers:
-      - demo (default): small static map
-      - census: US Census Geocoder
-
-    Caches successful lookups to minimize repeated calls.
+    Caches successful lookups to minimize repeated lookups against the CSV data.
     """
     if not loc:
         return None
@@ -258,7 +251,7 @@ def geocode(loc: str) -> Optional[Tuple[float, float]]:
         print(f"[geocode] provider={provider} query='{key}'", file=sys.stderr)
     now = time.time()
     ttl = _ttl_seconds()
-    # Scope cache by provider to avoid demo/census collisions
+    # Include provider in cache key to stay forward-compatible with future backends
     cache_key = f"{provider}::{key.lower()}"
     hit = _CACHE.get(cache_key)
     if hit and hit[1] > now:

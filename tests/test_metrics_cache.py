@@ -42,7 +42,7 @@ def test_geocode_ttl_cache(tmp_path, monkeypatch):
     import pandas as pd
     from tools import geocode as gc
 
-    # Use local provider and a temp CSV
+    # Use a temp CSV for the local geocoder
     csv = tmp_path / "us_places.csv"
     df = pd.DataFrame({
         "USPS": ["TX"],
@@ -52,7 +52,6 @@ def test_geocode_ttl_cache(tmp_path, monkeypatch):
     })
     df.to_csv(csv, index=False)
 
-    monkeypatch.setenv("GEO_PROVIDER", "local")
     monkeypatch.setenv("US_PLACES_CSV", str(csv))
     monkeypatch.setenv("GEOCODE_TTL_SECONDS", "3600")
     # Clear cache

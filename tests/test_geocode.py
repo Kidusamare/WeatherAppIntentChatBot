@@ -15,7 +15,6 @@ def test_local_geocode_with_csv(tmp_path, monkeypatch):
     )
     df.to_csv(csv, index=False)
     monkeypatch.setenv("US_PLACES_CSV", str(csv))
-    monkeypatch.setenv("GEO_PROVIDER", "local")
 
     latlon = geocode("Austin, TX")
     assert latlon == (30.2672, -97.7431)

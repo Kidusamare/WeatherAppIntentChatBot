@@ -4,11 +4,11 @@ Intent-driven chatbot that fetches forecasts and alerts from the US National Wea
 
 ## Features
 - TF‑IDF + Logistic Regression intent classifier
-- Regex/keyword entities: location (City, ST or demo ZIPs), datetime (today/tonight/tomorrow/weekday/weekend), units (no conversion yet)
+- Regex/keyword entities: location (City, ST), datetime (today/tonight/tomorrow/weekday/weekend), units (no conversion yet)
 - Session memory: remembers last location per `session_id`
 - NWS client: points → forecast periods; active alerts by lat/lon
 - FastAPI API: `/health`, `/predict` returns intent, confidence, entities, and a user-ready reply
-- Pluggable geocoding: demo static map (offline) or US Census Geocoder
+- Local CSV geocoder with fuzzy matching for US places
 
 ## Setup
 ```bash
@@ -32,20 +32,6 @@ pytest -q --cov=weather-bot --cov-report=term-missing
 python scripts/eval.py --train data/nlu.yml --eval data/eval.yml
 ```
 This prints a classification report, confusion matrix, and per‑example confidences.
-
-### Geocoding Providers
-- US Census (default, US-only, online): resolves arbitrary US addresses/cities.
-- Demo (offline): a tiny static map good for quick tests; not recommended for real usage.
-
-Select provider with an env var:
-```bash
-# default: census
-export GEO_PROVIDER=census
-
-# offline demo map
-export GEO_PROVIDER=demo
-export USER_AGENT="weather-bot/0.1 (you@example.com)"  # polite header
-```
 
 Notes:
 - Entity parsing is pure and returns a normalized location string (e.g., "Austin, TX", "Baltimore").
@@ -82,25 +68,23 @@ curl -s -X POST http://127.0.0.1:8000/predict \
 ```
 
 ## How it works
-- Demo geocoding maps a few Texas cities: Austin, San Marcos, San Antonio, Dallas; and a couple of ZIP codes.
+- Local geocoding loads `data/us_places.csv` (override with `US_PLACES_CSV`) and uses substring/fuzzy matching to find City, ST entries.
 - Forecast selection chooses a period by datetime entity (today/tonight/tomorrow/weekday/weekend) with sensible fallbacks.
 - Confidence gating: if intent confidence < 0.55, returns a clarifying prompt.
 - Alerts reply with a bullet list or “No active alerts for {loc}.”
 
 Geocoding details:
 - Entity parsing only extracts a location string; it does not hit the network.
-- `tools/geocode.py` resolves the string to lat/lon via provider selection:
-  - `GEO_PROVIDER=demo` (default): small static map, offline-friendly.
-  - `GEO_PROVIDER=census`: US Census Geocoder (online). Include a polite `USER_AGENT`.
-  - Results are cached in-process with an LRU cache.
-  - TTL caching: geocode, forecast, and alerts responses use TTLs (env-configurable)
-    - `GEOCODE_TTL_SECONDS` (default 3600s)
-    - `FORECAST_TTL_SECONDS` (default 600s)
-    - `ALERTS_TTL_SECONDS` (default 120s)
-  - Datetime parsing enhanced: supports phrases like “this afternoon/evening/morning”, “later today”, and “tomorrow morning/night”.
+- `tools/geocode.py` resolves the string to lat/lon using the CSV-backed local geocoder.
+- Results are cached in-process with a TTL cache.
+- TTL caching: geocode, forecast, and alerts responses use TTLs (env-configurable)
+  - `GEOCODE_TTL_SECONDS` (default 3600s)
+  - `FORECAST_TTL_SECONDS` (default 600s)
+  - `ALERTS_TTL_SECONDS` (default 120s)
+- Datetime parsing enhanced: supports phrases like “this afternoon/evening/morning”, “later today”, and “tomorrow morning/night”.
 
 ## Known limitations
-- Demo geocoding (offline) or US Census (online). If a location is unknown, the bot asks for a City, ST.
+- Local geocoding relies on the CSV catalog (US-only). If a location is unknown, the bot asks for a City, ST.
 - Temperature units are what NWS provides (usually °F). The units entity is parsed but not used for conversion yet.
 - In‑process memory only; swap to Redis later for multi-instance deployments.
 
@@ -136,7 +120,7 @@ python scripts/test_spacy_location.py "tomorrow in silver spring maryland" "fore
 ```json
 {
   "status": "ok",
-  "geo_provider": "demo",
+  "geo_provider": "local",
   "ttl": {"geocode": 3600, "forecast": 600, "alerts": 120}
 }
 ```
@@ -149,14 +133,13 @@ python scripts/test_spacy_location.py "tomorrow in silver spring maryland" "fore
 - Config: minimal logging with request IDs and provider selection echo in `/health`.
 ### Environment (.env)
 - A `.env` file with sensible defaults is included. The app and chat demo load it automatically.
-- Replace `USER_AGENT` with your contact info to comply with NWS/Census policies.
+- Replace `USER_AGENT` with your contact info to comply with NWS policies.
 - Common variables:
   - `INTENT_BACKEND` (tfidf|bert)
   - `INTENT_CONF_TEMPERATURE` (default `0.75`) — <1 sharpens intent confidence; >1 smooths it
   - When using the `bert` backend be sure `torch` and `transformers` are installed (included in `requirements*.txt`)
-  - `GEO_PROVIDER` (demo|census)
   - `USER_AGENT` (e.g., `weather-bot/0.1 (you@example.com)`)
   - `GEOCODE_TTL_SECONDS`, `FORECAST_TTL_SECONDS`, `ALERTS_TTL_SECONDS`
   - `WEATHER_BOT_DB_PATH`
-  - `HF_MODEL_NAME`, `HF_DEVICE`, `CENSUS_GEOCODER_URL`, `CENSUS_BENCHMARK`
+  - `HF_MODEL_NAME`, `HF_DEVICE`
   - `GEOCODE_DEBUG=1` (optional) to print provider, cache hits, and results
