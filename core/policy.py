@@ -14,7 +14,7 @@ from typing import Dict, Any, List
 import re
 import hashlib
 
-from core.memory import get_mem, set_mem
+from core.memory import append_prompt_snapshot, get_mem, set_mem
 from tools.weather_nws import get_forecast, get_alerts
 from tools.geocode import canonicalize_location
 
@@ -41,6 +41,26 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
 
     intent = intent or "fallback"
 
+    # Work on a copy so caller retains raw extraction
+    entities = dict(entities or {})
+
+    # Track resolved context so we can cache it for future turns
+    resolved_loc = entities.get("location")
+    resolved_when = entities.get("datetime")
+    resolved_units = entities.get("units")
+
+    # Warm-start missing pieces from prior turn memory if available
+    last_entities = get_mem(session_id, "last_entities") or {}
+    if not resolved_loc and last_entities.get("location"):
+        resolved_loc = last_entities.get("location")
+        entities.setdefault("location", resolved_loc)
+    if not resolved_when and last_entities.get("datetime"):
+        resolved_when = last_entities.get("datetime")
+        entities.setdefault("datetime", resolved_when)
+    if not resolved_units and last_entities.get("units"):
+        resolved_units = last_entities.get("units")
+        entities.setdefault("units", resolved_units)
+
     # Check for pending intent context (e.g., user provided location after a prompt)
     pending_intent = get_mem(session_id, "pending_intent")
     pending_when = get_mem(session_id, "pending_when")
@@ -53,6 +73,30 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
         idx = int(h, 16) % len(options)
         return options[idx]
 
+    def _capture(
+        reply_text: str,
+        *,
+        used_intent: str | None = None,
+        remember: bool = True,
+    ) -> str:
+        payload = {
+            "location": resolved_loc,
+            "datetime": resolved_when,
+            "units": resolved_units,
+        }
+        append_prompt_snapshot(
+            session_id,
+            intent=used_intent or intent,
+            confidence=conf,
+            entities=payload,
+            extras={"reply": reply_text},
+        )
+        if remember:
+            set_mem(session_id, "last_entities", payload)
+            if payload.get("location"):
+                set_mem(session_id, "last_location", payload["location"])
+        return reply_text
+
     # Greeting/help
     if intent == "greet":
         variants = [
@@ -60,13 +104,15 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
             "Hello! I can check weather now, forecasts, and alerts. Try: 'weather now in Austin, TX'",
             "Hey there! I can give you current conditions, a forecast, or alerts. For example: 'any alerts for Dallas, TX?'",
         ]
-        return _pick(variants, key="greet")
+        reply = _pick(variants, key="greet")
+        return _capture(reply, remember=False)
     if intent == "help":
         options = [
             "You can ask for current weather, forecasts (today/tonight/tomorrow/weekday), or alerts. Include a city like 'San Marcos, TX'.",
             "Try things like: 'weather now in Austin, TX', 'and tonight?', or 'any weather alerts for Dallas, TX?'",
         ]
-        return _pick(options, key="help")
+        reply = _pick(options, key="help")
+        return _capture(reply, remember=False)
 
     # Common location resolution for weather/alerts
     loc = entities.get("location") if entities else None
@@ -76,8 +122,10 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
         if _is_city_state(can_loc):
             set_mem(session_id, "last_location", can_loc)
         loc = can_loc
+        resolved_loc = loc
     else:
         loc = get_mem(session_id, "last_location")
+        resolved_loc = loc
 
     if intent in {"get_current_weather", "get_forecast"}:
         if low_conf and not (loc and entities and entities.get("datetime")):
@@ -85,20 +133,26 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
             set_mem(session_id, "pending_intent", intent)
             when_hint = (entities.get("datetime") if entities else None) or "today"
             set_mem(session_id, "pending_when", when_hint)
-            return "Do you want current weather, a forecast, or alerts?"
+            resolved_when = resolved_when or when_hint
+            reply = "Do you want current weather, a forecast, or alerts?"
+            return _capture(reply, remember=False)
         if not loc:
             # Remember what we're after and ask for City, ST
             set_mem(session_id, "pending_intent", intent)
             when_hint = (entities.get("datetime") if entities else None) or "today"
             set_mem(session_id, "pending_when", when_hint)
-            return _need_location_reply()
+            resolved_when = resolved_when or when_hint
+            reply = _need_location_reply()
+            return _capture(reply, remember=False)
         when = (entities.get("datetime") if entities else None) or "today"
         # Treat current weather as 'today' first period
         if intent == "get_current_weather":
             when = "today"
+        resolved_when = when
         fc = get_forecast(loc, when)
         if "error" in fc:
-            return f"Sorry, I couldn't fetch the forecast for {loc}. {fc['error']}"
+            reply = f"Sorry, I couldn't fetch the forecast for {loc}. {fc['error']}"
+            return _capture(reply)
         period = fc.get("period") or when.title()
         short = fc.get("shortForecast") or "Forecast unavailable"
         temp = fc.get("temperature")
@@ -127,16 +181,23 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
         # Clear pending upon success
         set_mem(session_id, "pending_intent", None)
         set_mem(session_id, "pending_when", None)
-        return (base + suffix).strip()
+        resolved_loc = loc
+        resolved_units = requested_units
+        reply = (base + suffix).strip()
+        return _capture(reply)
 
     if intent == "get_alerts":
         if low_conf and not loc:
-            return "Do you want current weather, a forecast, or alerts?"
+            reply = "Do you want current weather, a forecast, or alerts?"
+            return _capture(reply, remember=False)
         if not loc:
-            return _need_location_reply()
+            reply = _need_location_reply()
+            return _capture(reply, remember=False)
         alerts = get_alerts(loc)
         if not alerts:
-            return f"No active alerts for {loc}."
+            resolved_loc = loc
+            reply = f"No active alerts for {loc}."
+            return _capture(reply)
         lines = [f"- {a.get('event') or 'Alert'}: {a.get('headline') or ''}" for a in alerts]
         # Keep the header stable for tests, add a friendly nudge afterwards
         body = f"Active alerts for {loc}:\n" + "\n".join(lines)
@@ -144,7 +205,9 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
         # Clear pending upon success
         set_mem(session_id, "pending_intent", None)
         set_mem(session_id, "pending_when", None)
-        return body + tail
+        resolved_loc = loc
+        reply = body + tail
+        return _capture(reply)
 
     # If the user supplied a location but classifier didn't catch intent,
     # use any pending intent from the previous turn
@@ -156,7 +219,10 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
                 when = "today"
             fc = get_forecast(loc, when)
             if "error" in fc:
-                return f"Sorry, I couldn't fetch the forecast for {loc}. {fc['error']}"
+                resolved_loc = loc
+                resolved_when = when
+                reply = f"Sorry, I couldn't fetch the forecast for {loc}. {fc['error']}"
+                return _capture(reply, used_intent=pending_intent)
             period = fc.get("period") or str(when).title()
             short = fc.get("shortForecast") or "Forecast unavailable"
             temp = fc.get("temperature")
@@ -180,22 +246,31 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
             ], key="wx_suffix")
             set_mem(session_id, "pending_intent", None)
             set_mem(session_id, "pending_when", None)
-            return (base + suffix).strip()
+            resolved_loc = loc
+            resolved_when = when
+            resolved_units = requested_units
+            reply = (base + suffix).strip()
+            return _capture(reply, used_intent=pending_intent)
         if pending_intent == "get_alerts":
             alerts = get_alerts(loc)
             if not alerts:
                 set_mem(session_id, "pending_intent", None)
                 set_mem(session_id, "pending_when", None)
-                return f"No active alerts for {loc}."
+                resolved_loc = loc
+                reply = f"No active alerts for {loc}."
+                return _capture(reply, used_intent=pending_intent)
             lines = [f"- {a.get('event') or 'Alert'}: {a.get('headline') or ''}" for a in alerts]
             body = f"Active alerts for {loc}:\n" + "\n".join(lines)
             tail = _pick(["", "\nStay safe. Ask for a forecast if you need details."], key="alerts_tail")
             set_mem(session_id, "pending_intent", None)
             set_mem(session_id, "pending_when", None)
-            return body + tail
+            resolved_loc = loc
+            reply = body + tail
+            return _capture(reply, used_intent=pending_intent)
 
     # Fallback/help
-    return _pick([
+    reply = _pick([
         "I can help with current weather, forecasts (today/tonight/tomorrow/weekday), and weather alerts. Try: 'weather now in Austin, TX'",
         "Ask me for current conditions, a forecast (like 'tomorrow in Dallas, TX'), or alerts.",
     ], key="fallback")
+    return _capture(reply, remember=False)

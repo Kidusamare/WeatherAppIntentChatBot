@@ -5,8 +5,7 @@ def test_parse_location_city_state():
     # City-only should return just the city (parser stays pure)
     assert parse_location("what's weather in Baltimore") == "Baltimore"
 
-def test_parse_location_zip():
-    assert parse_location("current temperature for 78705") == "78705"
+# ZIP parsing deprecated in local-only setup; ensure city parsing remains stable.
 
 
 def test_parse_location_none():

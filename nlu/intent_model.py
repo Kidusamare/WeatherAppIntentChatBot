@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from typing import List, Tuple
+import os
 import re
+
+import numpy as np
 import yaml
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
@@ -22,6 +25,10 @@ class IntentClassifier:
         self.vectorizer = TfidfVectorizer(ngram_range=(1,3), min_df=1)
         self.clf = LogisticRegression(max_iter=2000, class_weight="balanced", C=3.0)
         self.trained = False
+        # Temperature < 1 sharpens probabilities, > 1 smooths them
+        temp = float(os.getenv("INTENT_CONF_TEMPERATURE", "0.75"))
+        # Clamp to avoid degenerate behaviour; 1e-3 lower bound is plenty
+        self.temperature = max(temp, 1e-3)
 
     def load_yaml(self, path: str) -> List[IntentExample]:
         with open(path, "r") as f:
@@ -43,5 +50,10 @@ class IntentClassifier:
             raise RuntimeError("Model not trained. Call fit() first.")
         x = self.vectorizer.transform([normalize(text)])
         proba = self.clf.predict_proba(x)[0]
+        if self.temperature != 1.0:
+            # Convert to log space to emulate softmax temperature scaling
+            logits = np.log(np.clip(proba, 1e-9, 1.0)) / self.temperature
+            exp = np.exp(logits - logits.max())
+            proba = exp / exp.sum()
         idx = int(proba.argmax())
         return self.clf.classes_[idx], float(proba[idx])

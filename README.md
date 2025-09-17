@@ -152,6 +152,8 @@ python scripts/test_spacy_location.py "tomorrow in silver spring maryland" "fore
 - Replace `USER_AGENT` with your contact info to comply with NWS/Census policies.
 - Common variables:
   - `INTENT_BACKEND` (tfidf|bert)
+  - `INTENT_CONF_TEMPERATURE` (default `0.75`) — <1 sharpens intent confidence; >1 smooths it
+  - When using the `bert` backend be sure `torch` and `transformers` are installed (included in `requirements*.txt`)
   - `GEO_PROVIDER` (demo|census)
   - `USER_AGENT` (e.g., `weather-bot/0.1 (you@example.com)`)
   - `GEOCODE_TTL_SECONDS`, `FORECAST_TTL_SECONDS`, `ALERTS_TTL_SECONDS`

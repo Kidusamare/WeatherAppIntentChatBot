@@ -79,11 +79,14 @@ def parse_location(text: str) -> Optional[str]:
     # Pick the last such occurrence to avoid earlier words.
     st_set = set(STATE_ABBR.values()) | {"DC"}
     m_any = None
-    for m in re.finditer(r"([A-Za-z][A-Za-z .-]*?)\s*,?\s+([A-Za-z]{2})\b", text, flags=re.IGNORECASE):
-        st = (m.group(2) or "").upper()
-        if st in st_set:
+    st = None
+    # Only accept two-letter state if it appears at the end (optionally followed by punctuation)
+    for m in re.finditer(r"([A-Za-z][A-Za-z .-]*?)\s*,?\s+([A-Za-z]{2})(?=\s*$|[?.,!]\s*$)", text, flags=re.IGNORECASE):
+        cand_st = (m.group(2) or "").upper()
+        if cand_st in st_set:
             m_any = m
-    if m_any:
+            st = cand_st
+    if m_any and st:
         city = (m_any.group(1) or "").strip()
         # Keep only the trailing word group as city (avoid capturing preceding words like 'in'/'for')
         city = re.sub(r".*\b(in|for|near|at)\s+", "", city, flags=re.IGNORECASE)

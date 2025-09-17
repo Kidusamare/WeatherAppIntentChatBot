@@ -4,4 +4,8 @@ scikit-learn
 pyyaml
 requests
 python-dotenv
+pandas
+rapidfuzz
 spacy
+torch
+transformers

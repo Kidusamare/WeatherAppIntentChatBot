@@ -1,41 +1,25 @@
-import json
-from tools.geocode import geocode, DEMO_GEOCODES
+import pandas as pd
+from tools.geocode import geocode
 
 
-def test_demo_geocode(monkeypatch):
-    monkeypatch.setenv("GEO_PROVIDER", "demo")
-    # Use a known demo city
-    latlon = geocode("Austin")
-    assert latlon == DEMO_GEOCODES["Austin, TX"]
-
-
-def test_census_geocode_parsing(monkeypatch):
-    import requests
-
-    class FakeResp:
-        def __init__(self, payload):
-            self._payload = payload
-
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return self._payload
-
-    def fake_get(url, params=None, headers=None, timeout=None):
-        # Return a minimal valid payload with an address match
-        payload = {
-            "result": {
-                "addressMatches": [
-                    {"coordinates": {"x": -97.7431, "y": 30.2672}}
-                ]
-            }
+def test_local_geocode_with_csv(tmp_path, monkeypatch):
+    # Prepare a small CSV for local geocoder
+    csv = tmp_path / "us_places.csv"
+    df = pd.DataFrame(
+        {
+            "USPS": ["TX", "MD"],
+            "name": ["Austin city", "Baltimore city"],
+            "lat": [30.2672, 39.2904],
+            "long": [-97.7431, -76.6122],
         }
-        return FakeResp(payload)
-
-    monkeypatch.setenv("GEO_PROVIDER", "census")
-    monkeypatch.setattr(requests, "get", fake_get)
+    )
+    df.to_csv(csv, index=False)
+    monkeypatch.setenv("US_PLACES_CSV", str(csv))
+    monkeypatch.setenv("GEO_PROVIDER", "local")
 
     latlon = geocode("Austin, TX")
     assert latlon == (30.2672, -97.7431)
 
+    # City-only: should still find a match via substring
+    latlon2 = geocode("Austin")
+    assert latlon2 == (30.2672, -97.7431)

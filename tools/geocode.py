@@ -7,36 +7,19 @@ import time
 import requests
 import re
 import sys
+try:
+    import pandas as pd  # type: ignore
+except Exception:  # pragma: no cover
+    pd = None  # type: ignore
+try:
+    from rapidfuzz import process as rf_process, fuzz as rf_fuzz  # type: ignore
+except Exception:  # pragma: no cover
+    rf_process = None  # type: ignore
+    rf_fuzz = None  # type: ignore
+import sys
 
 
-# Keep a tiny demo map for offline/dev usage
-DEMO_GEOCODES: dict[str, tuple[float, float]] = {
-    "Austin, TX": (30.2672, -97.7431),
-    "San Marcos, TX": (29.8833, -97.9414),
-    "San Antonio, TX": (29.4241, -98.4936),
-    "Dallas, TX": (32.7767, -96.7970),
-    # A couple more for convenience
-    "Baltimore, MD": (39.2904, -76.6122),
-    "Orlando, FL": (28.5383, -81.3792),
-    "New York, NY": (40.7128, -74.0060),
-    "Los Angeles, CA": (34.0522, -118.2437),
-    "Chicago, IL": (41.8781, -87.6298),
-    "Silver Spring, MD": (38.9907, -77.0261),
-    "Denver, CO": (39.7392, -104.9903),
-    "Seattle, WA": (47.6062, -122.3321),
-    "Phoenix, AZ": (33.4484, -112.0740),
-    "Boston, MA": (42.3601, -71.0589),
-    "San Francisco, CA": (37.7749, -122.4194),
-    "San Diego, CA": (32.7157, -117.1611),
-    "San Jose, CA": (37.3382, -121.8863),
-    "Houston, TX": (29.7604, -95.3698),
-    "Philadelphia, PA": (39.9526, -75.1652),
-    "Washington, DC": (38.9072, -77.0369),
-    "Boulder, CO": (40.0150, -105.2705),
-    "Jacksonville, FL": (30.3322, -81.6557),
-    "Waco, TX": (31.5493, -97.1467),
-    "Kyle, TX": (29.9897, -97.8731),
-}
+# Deprecated: demo geocodes removed in favor of local CSV-based geocoder.
 
 # Optional hints to expand city-only queries to City, ST (US-only convenience)
 CITY_TO_STATE = {
@@ -102,179 +85,130 @@ def canonicalize_location(loc: str) -> str:
     return key.title()
 
 
-class DemoGeocoder:
-    def resolve(self, loc: str) -> Optional[Tuple[float, float]]:
-        if not loc:
-            return None
-        key = loc.strip()
-        # Expand city-only using hints, if applicable
-        low = key.lower()
-        if "," not in key and low in CITY_TO_STATE:
-            key = f"{key.title()}, {CITY_TO_STATE[low]}"
-        for name, coords in DEMO_GEOCODES.items():
-            if name.lower() == key.lower():
-                return coords
-        # Fuzzy match city within same-state demo entries when spelled close
-        m = re.match(r"^\s*([A-Za-z .-]+)\s*,\s*([A-Za-z]{2})\s*$", key)
-        if m:
-            city = (m.group(1) or "").strip().lower()
-            st = (m.group(2) or "").upper()
-            # Candidate demo city names for this state
-            candidates = [
-                name.split(",")[0].strip()
-                for name in DEMO_GEOCODES.keys()
-                if name.upper().endswith(", " + st)
-            ]
-            # Try close match
-            if candidates:
-                match = difflib.get_close_matches(city.title(), candidates, n=1, cutoff=0.8)
-                if match:
-                    canon = f"{match[0]}, {st}"
-                    coords = DEMO_GEOCODES.get(canon)
-                    if coords:
-                        return coords
-        # Minimal ZIP mapping to closest demo city
-        if key.isdigit() and len(key) == 5:
-            zip_to_city = {
-                "78701": "Austin, TX",
-                "78705": "Austin, TX",
-                "78666": "San Marcos, TX",
-                "78205": "San Antonio, TX",
-                "75201": "Dallas, TX",
-            }
-            city = zip_to_city.get(key)
-            if city:
-                return DEMO_GEOCODES[city]
-        return None
+# DemoGeocoder removed.
 
 
-class CensusGeocoder:
-    """US Census Geocoder (oneline address to lat/lon).
+# CensusGeocoder removed.
 
-    Docs: https://geocoding.geo.census.gov/
-    Endpoint: /geocoder/locations/onelineaddress
-    Response: addressMatches[0].coordinates {x: lon, y: lat}
+
+class LocalGeocoder:
+    """Local CSV-backed geocoder using fuzzy matching on place names.
+
+    Expects a CSV with columns (case-insensitive):
+      - USPS (two-letter state)
+      - name (place name; may include type like 'city', 'township', etc.)
+      - lat (latitude)
+      - long (longitude)
+
+    Config:
+      - US_PLACES_CSV: path to CSV (default: data/us_places.csv)
+      - LOCAL_FUZZY_SCORE_CUTOFF: minimal score (default 80)
     """
 
-    BASE = os.getenv("CENSUS_GEOCODER_URL", "https://geocoding.geo.census.gov")
-    BENCHMARK = os.getenv("CENSUS_BENCHMARK", "Public_AR_Current")
+    def __init__(self) -> None:
+        self.csv_path = os.getenv("US_PLACES_CSV", str(os.path.join(os.path.dirname(__file__), "..", "data", "us_places.csv")))
+        self._df: Optional[pd.DataFrame] = None
 
-    def _headers(self) -> dict:
-        return {
-            "User-Agent": os.getenv("USER_AGENT", "weather-bot/0.1 (demo@example.com)"),
-            "Accept": "application/json",
-        }
-
-    def _req(self, path: str, params: dict) -> Optional[dict]:
-        url = f"{self.BASE}{path}"
+    def _load(self) -> Optional[pd.DataFrame]:
+        if self._df is not None:
+            return self._df
+        if pd is None:
+            if _debug_enabled():
+                print("[geocode-local] pandas not available; cannot load local CSV", file=sys.stderr)
+            return None
         try:
+            df = pd.read_csv(self.csv_path)
+        except Exception as e:
             if _debug_enabled():
-                print(f"[geocode] census_request url={url} params={params}", file=sys.stderr)
-            r = requests.get(url, params=params, headers=self._headers(), timeout=10)
-            r.raise_for_status()
-            return r.json()  # type: ignore[return-value]
-        except requests.RequestException as e:
+                print(f"[geocode-local] failed to read CSV at {self.csv_path}: {e}", file=sys.stderr)
+            return None
+        cols = {c.lower(): c for c in df.columns}
+        def pick(*names: str) -> Optional[str]:
+            for n in names:
+                if n.lower() in cols:
+                    return cols[n.lower()]
+            return None
+        st_col = pick("usps", "state", "state_abbr", "st")
+        name_col = pick("name", "place", "city")
+        lat_col = pick("lat", "latitude")
+        lon_col = pick("long", "lon", "lng", "longitude")
+        if not all([st_col, name_col, lat_col, lon_col]):
             if _debug_enabled():
-                print(f"[geocode] census_error: {e}", file=sys.stderr)
+                print(f"[geocode-local] missing required columns in {self.csv_path}", file=sys.stderr)
             return None
-
-    def _onelineaddress(self, address: str) -> Optional[Tuple[float, float]]:
-        data = self._req(
-            "/geocoder/locations/onelineaddress",
-            {"address": address, "benchmark": self.BENCHMARK, "format": "json"},
-        )
-        if not data:
-            return None
-        matches = (data.get("result", {}).get("addressMatches", []) or [])
+        work = pd.DataFrame()
+        work["state"] = df[st_col].astype(str).str.upper()
+        work["name"] = df[name_col].astype(str)
+        work["lat"] = pd.to_numeric(df[lat_col], errors="coerce")
+        work["lon"] = pd.to_numeric(df[lon_col], errors="coerce")
+        work = work.dropna(subset=["lat", "lon"])  # keep rows with coords
+        # Normalized name for substring/fuzzy matching
+        def norm(s: str) -> str:
+            s = s.lower()
+            s = re.sub(r"[^a-z0-9 ]+", " ", s)
+            s = re.sub(r"\s+", " ", s).strip()
+            return s
+        work["norm"] = work["name"].map(norm)
+        self._df = work
         if _debug_enabled():
-            print(f"[geocode] census_matches(onelineaddress)={len(matches)} for '{address}'", file=sys.stderr)
-        if not matches:
-            return None
-        coord = (matches[0].get("coordinates") or {})
-        lon = coord.get("x")
-        lat = coord.get("y")
-        if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
-            return float(lat), float(lon)
-        return None
-
-    def _geographies_onelineaddress(self, address: str) -> Optional[Tuple[float, float]]:
-        # Some place names resolve better via the geographies endpoint
-        data = self._req(
-            "/geocoder/geographies/onelineaddress",
-            {
-                "address": address,
-                "benchmark": self.BENCHMARK,
-                "vintage": os.getenv("CENSUS_VINTAGE", "Current_Census"),
-                "format": "json",
-            },
-        )
-        if not data:
-            return None
-        matches = (data.get("result", {}).get("addressMatches", []) or [])
-        if _debug_enabled():
-            print(f"[geocode] census_matches(geographies)={len(matches)} for '{address}'", file=sys.stderr)
-        if not matches:
-            return None
-        coord = (matches[0].get("coordinates") or {})
-        lon = coord.get("x")
-        lat = coord.get("y")
-        if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
-            return float(lat), float(lon)
-        return None
+            print(f"[geocode-local] loaded {len(work)} places from {self.csv_path}", file=sys.stderr)
+        return self._df
 
     def resolve(self, loc: str) -> Optional[Tuple[float, float]]:
-        if not loc:
+        df = self._load()
+        if df is None or not loc:
             return None
-        # Expand city-only using hints as a nicety (still works without)
         key = loc.strip()
-        low = key.lower()
-        if "," not in key and low in CITY_TO_STATE:
-            key = f"{key.title()}, {CITY_TO_STATE[low]}"
-
-        # Prefer exact City, ST formatting
-        address = key
         m = re.match(r"^\s*([A-Za-z .-]+)\s*,\s*([A-Za-z]{2})\s*$", key)
+        state = None
+        city = key
         if m:
-            city = (m.group(1) or "").strip().title()
-            st = (m.group(2) or "").upper()
-            address = f"{city}, {st}"
+            city = (m.group(1) or "").strip()
+            state = (m.group(2) or "").upper()
+        # Normalize search key
+        def norm(s: str) -> str:
+            s = s.lower()
+            s = re.sub(r"[^a-z0-9 ]+", " ", s)
+            s = re.sub(r"\s+", " ", s).strip()
+            return s
+        city_norm = norm(city)
+        if not city_norm:
+            return None
+        # Restrict by state if provided
+        subset = df
+        if state is not None:
+            subset = df[df["state"] == state]
+            if subset.empty:
+                subset = df
+        # Try substring match first
+        mask = subset["norm"].str.contains(city_norm, na=False)
+        cand = subset[mask]
+        if not cand.empty:
+            row = cand.iloc[0]
+            return float(row["lat"]), float(row["lon"])
+        # Fuzzy match using rapidfuzz partial ratio
+        cutoff = int(os.getenv("LOCAL_FUZZY_SCORE_CUTOFF", "80"))
+        choices = list(subset["name"].values)
+        if not choices or rf_process is None or rf_fuzz is None:
+            return None
+        best = rf_process.extractOne(city, choices, scorer=rf_fuzz.partial_ratio, score_cutoff=cutoff)
+        if best is None:
+            # widen to full dataset
+            best = rf_process.extractOne(city, list(df["name"].values), scorer=rf_fuzz.partial_ratio, score_cutoff=cutoff)
+            if best is None:
+                return None
+            match_name = best[0]
+            row = df[df["name"] == match_name].iloc[0]
+            return float(row["lat"]), float(row["lon"])
+        match_name = best[0]
+        row = subset[subset["name"] == match_name].iloc[0]
+        return float(row["lat"]), float(row["lon"])
 
-        # Try standard onelineaddress
-        val = self._onelineaddress(address)
-        if val is not None:
-            return val
-
-        # Try geographies onelineaddress
-        val = self._geographies_onelineaddress(address)
-        if val is not None:
-            return val
-
-        # Last resort: if we had City, ST tokens, try the 'locations/address' endpoint with city/state
-        if m:
-            data = self._req(
-                "/geocoder/locations/address",
-                {
-                    "city": city,
-                    "state": st,
-                    "benchmark": self.BENCHMARK,
-                    "format": "json",
-                },
-            )
-            matches = (data or {}).get("result", {}).get("addressMatches", []) if data else []
-            if _debug_enabled():
-                print(f"[geocode] census_matches(address city/state)={len(matches)} for '{city}, {st}'", file=sys.stderr)
-            if matches:
-                coord = (matches[0].get("coordinates") or {})
-                lon = coord.get("x")
-                lat = coord.get("y")
-                if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
-                    return float(lat), float(lon)
-        return None
 
 
 def _provider_name() -> str:
-    # Default to census to avoid demo interfering in real usage
-    return (os.getenv("GEO_PROVIDER") or "census").strip().lower()
+    # Only local provider backed by CSV
+    return "local"
 
 
 def _debug_enabled() -> bool:
@@ -284,10 +218,7 @@ def _debug_enabled() -> bool:
 
 def _provider():
     name = _provider_name()
-    if name == "census":
-        return CensusGeocoder()
-    # default
-    return DemoGeocoder()
+    return LocalGeocoder()
 
 
 _CACHE: dict[str, tuple[Optional[Tuple[float, float]], float]] = {}
@@ -336,53 +267,6 @@ def geocode(loc: str) -> Optional[Tuple[float, float]]:
         return hit[0]
     prov = _provider()
     val = prov.resolve(key)
-    # If Census fails to resolve, try guarded fallbacks:
-    if val is None and provider == "census":
-        demo = DemoGeocoder()
-        # 1) Demo fallback for exact key
-        fallback = demo.resolve(key)
-        if _debug_enabled():
-            print(f"[geocode] census_miss key='{key}', demo_fallback -> {fallback}", file=sys.stderr)
-        if fallback is not None:
-            val = fallback
-        else:
-            # 2) If input is city-only with multiple tokens (no comma), try two-word then one-word fallbacks.
-            if "," not in key and " " in key:
-                tokens = [t for t in key.split() if t]
-                # Build two-word candidate like "New York" -> prefer hint mapping if available
-                two = " ".join(tokens[:2]).title() if len(tokens) >= 2 else None
-                cand_two = None
-                if two and two.lower() in CITY_TO_STATE:
-                    cand_two = f"{two}, {CITY_TO_STATE[two.lower()]}"
-                # Try two-word candidate(s) first
-                for cand in [c for c in [cand_two, two] if c]:
-                    v = prov.resolve(cand)
-                    if v is None:
-                        v = demo.resolve(cand)
-                    if _debug_enabled():
-                        print(f"[geocode] two-word attempt cand='{cand}' -> {v}", file=sys.stderr)
-                    if v is not None:
-                        val = v
-                        break
-                # If still not found, consider first-token fallback with guard prefixes
-                if val is None:
-                    first = tokens[0].title()
-                    forbidden_first = {"New", "Los", "Las", "San", "Santa", "Saint", "St", "Fort", "North", "South", "East", "West", "Rio"}
-                    if first not in forbidden_first:
-                        alt = None
-                        if first.lower() in CITY_TO_STATE:
-                            alt = f"{first}, {CITY_TO_STATE[first.lower()]}"
-                        if _debug_enabled():
-                            print(f"[geocode] trying first-token fallback: first='{first}', alt='{alt}'", file=sys.stderr)
-                        for cand in [c for c in [alt, first] if c]:
-                            v = prov.resolve(cand)
-                            if v is None:
-                                v = demo.resolve(cand)
-                            if _debug_enabled():
-                                print(f"[geocode] first-token attempt cand='{cand}' -> {v}", file=sys.stderr)
-                            if v is not None:
-                                val = v
-                                break
     _CACHE[cache_key] = (val, now + ttl)
     if _debug_enabled():
         print(f"[geocode] cache_store key='{cache_key}' -> {val}", file=sys.stderr)

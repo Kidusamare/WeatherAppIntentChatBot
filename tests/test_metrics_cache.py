@@ -38,37 +38,46 @@ def test_metrics_logging(tmp_path, monkeypatch):
         assert count == 1
 
 
-def test_geocode_ttl_cache(monkeypatch):
-    import requests
+def test_geocode_ttl_cache(tmp_path, monkeypatch):
+    import pandas as pd
     from tools import geocode as gc
 
-    monkeypatch.setenv("GEO_PROVIDER", "census")
+    # Use local provider and a temp CSV
+    csv = tmp_path / "us_places.csv"
+    df = pd.DataFrame({
+        "USPS": ["TX"],
+        "name": ["Austin city"],
+        "lat": [30.2672],
+        "long": [-97.7431],
+    })
+    df.to_csv(csv, index=False)
+
+    monkeypatch.setenv("GEO_PROVIDER", "local")
+    monkeypatch.setenv("US_PLACES_CSV", str(csv))
     monkeypatch.setenv("GEOCODE_TTL_SECONDS", "3600")
-    # Clear any previous cache state
+    # Clear cache
     try:
         gc._CACHE.clear()  # type: ignore[attr-defined]
     except Exception:
         pass
 
-    calls = {"n": 0}
+    # Count loads by patching LocalGeocoder._load
+    from tools.geocode import LocalGeocoder
 
-    class FakeResp:
-        def raise_for_status(self):
-            return None
+    loads = {"n": 0}
+    real_load = LocalGeocoder._load
 
-        def json(self):
-            return {"result": {"addressMatches": [{"coordinates": {"x": -97.7431, "y": 30.2672}}]}}
+    def counted_load(self):
+        loads["n"] += 1
+        return real_load(self)
 
-    def fake_get(url, params=None, headers=None, timeout=None):
-        calls["n"] += 1
-        return FakeResp()
-
-    monkeypatch.setattr(requests, "get", fake_get)
+    monkeypatch.setattr(LocalGeocoder, "_load", counted_load, raising=True)
 
     a = gc.geocode("Austin, TX")
     b = gc.geocode("Austin, TX")
     assert a == b == (30.2672, -97.7431)
-    assert calls["n"] == 1  # second call served from cache
+    # Only one load due to cache hit
+    assert loads["n"] == 1
 
 
 def test_forecast_cache(monkeypatch):

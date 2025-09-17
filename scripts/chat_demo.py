@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import uuid
+import json
 from pathlib import Path
 from typing import Dict, Any
 
@@ -20,10 +21,11 @@ from nlu import get_intent_classifier
 from tools.geocode import _provider_name as _geo_provider_name
 from nlu.entities import parse_location, parse_datetime, parse_units
 from core.policy import respond
+from core.memory import get_prompt_cache
 
 
 HELP_TEXT = (
-    "Commands: /help, /units [metric|imperial], /reset, /quit\n"
+    "Commands: /help, /units [metric|imperial], /cache, /reset, /quit\n"
     "Examples: 'weather now in Austin, TX', 'and tonight?', 'any alerts for Dallas, TX?'"
 )
 
@@ -61,6 +63,15 @@ def interactive_loop(session_id: str) -> None:
             break
         if low == "/help":
             print(HELP_TEXT)
+            continue
+        if low == "/cache":
+            history = get_prompt_cache(session_id)
+            if not history:
+                print("Prompt cache is empty.")
+            else:
+                # Show the five most recent turns
+                for item in history[-5:]:
+                    print(json.dumps(item, ensure_ascii=False, indent=2))
             continue
         if low.startswith("/units"):
             parts = low.split()
@@ -101,6 +112,7 @@ def main() -> None:
     print("Starting demo. New session:", sid)
     print("Geocoder provider:", _geo_provider_name())
     print("Location backend:", (os.getenv("LOCATION_BACKEND") or "spacy"))
+    print("Intent backend:", (os.getenv("INTENT_BACKEND") or "tfidf"))
     interactive_loop(sid)
 
 
