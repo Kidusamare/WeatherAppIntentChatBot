@@ -1,5 +1,8 @@
-import pandas as pd
-from tools.geocode import geocode
+import pytest
+
+pd = pytest.importorskip("pandas")
+
+from tools.geocode import geocode, _PROVIDER_INSTANCE
 
 
 def test_local_geocode_with_csv(tmp_path, monkeypatch):
@@ -15,6 +18,11 @@ def test_local_geocode_with_csv(tmp_path, monkeypatch):
     )
     df.to_csv(csv, index=False)
     monkeypatch.setenv("US_PLACES_CSV", str(csv))
+    # Clear singleton provider so the temp CSV is reloaded
+    from tools import geocode as module
+
+    module._PROVIDER_INSTANCE = None  # type: ignore[attr-defined]
+    module._CACHE.clear()  # type: ignore[attr-defined]
 
     latlon = geocode("Austin, TX")
     assert latlon == (30.2672, -97.7431)

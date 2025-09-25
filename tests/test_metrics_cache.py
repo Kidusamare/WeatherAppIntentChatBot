@@ -1,6 +1,10 @@
 import os
 import sqlite3
+
+import pytest
 from fastapi.testclient import TestClient
+
+pd = pytest.importorskip("pandas")
 
 
 def test_metrics_logging(tmp_path, monkeypatch):
@@ -39,7 +43,6 @@ def test_metrics_logging(tmp_path, monkeypatch):
 
 
 def test_geocode_ttl_cache(tmp_path, monkeypatch):
-    import pandas as pd
     from tools import geocode as gc
 
     # Use a temp CSV for the local geocoder
@@ -59,6 +62,7 @@ def test_geocode_ttl_cache(tmp_path, monkeypatch):
         gc._CACHE.clear()  # type: ignore[attr-defined]
     except Exception:
         pass
+    gc._PROVIDER_INSTANCE = None  # type: ignore[attr-defined]
 
     # Count loads by patching LocalGeocoder._load
     from tools.geocode import LocalGeocoder

@@ -131,6 +131,34 @@ def _choose_period(periods: List[Dict[str, Any]], when: str) -> Optional[Dict[st
 
 _FORECAST_CACHE: dict[tuple[str, str], tuple[dict, float]] = {}
 _ALERTS_CACHE: dict[str, tuple[List[Dict[str, Any]], float]] = {}
+_FORECAST_CACHE_MAX = max(int(os.getenv("FORECAST_CACHE_MAX", "5000")), 1)
+_ALERTS_CACHE_MAX = max(int(os.getenv("ALERTS_CACHE_MAX", "5000")), 1)
+
+
+def _purge_forecast_cache(now: float) -> None:
+    expired = [key for key, (_, expiry) in _FORECAST_CACHE.items() if expiry <= now]
+    for key in expired:
+        _FORECAST_CACHE.pop(key, None)
+    if len(_FORECAST_CACHE) <= _FORECAST_CACHE_MAX:
+        return
+    victims = sorted(_FORECAST_CACHE.items(), key=lambda item: item[1][1])
+    for key, _ in victims:
+        if len(_FORECAST_CACHE) <= _FORECAST_CACHE_MAX:
+            break
+        _FORECAST_CACHE.pop(key, None)
+
+
+def _purge_alert_cache(now: float) -> None:
+    expired = [key for key, (_, expiry) in _ALERTS_CACHE.items() if expiry <= now]
+    for key in expired:
+        _ALERTS_CACHE.pop(key, None)
+    if len(_ALERTS_CACHE) <= _ALERTS_CACHE_MAX:
+        return
+    victims = sorted(_ALERTS_CACHE.items(), key=lambda item: item[1][1])
+    for key, _ in victims:
+        if len(_ALERTS_CACHE) <= _ALERTS_CACHE_MAX:
+            break
+        _ALERTS_CACHE.pop(key, None)
 
 
 def _forecast_ttl() -> int:
@@ -163,6 +191,7 @@ def get_forecast(loc: str, when: str = "today") -> dict:
         key = (str(loc).strip().title(), (when or "today").lower())
         now = time.time()
         ttl = _forecast_ttl()
+        _purge_forecast_cache(now)
         hit = _FORECAST_CACHE.get(key)
         if hit and hit[1] > now:
             return hit[0]
@@ -189,6 +218,7 @@ def get_forecast(loc: str, when: str = "today") -> dict:
             "unit": unit,
         }
         _FORECAST_CACHE[key] = (result, now + ttl)
+        _purge_forecast_cache(now)
         return result
     except requests.RequestException as e:
         return {"error": f"HTTP error: {e}"}
@@ -209,6 +239,7 @@ def get_alerts(loc: str) -> List[Dict[str, Any]]:
         key = str(loc).strip().title()
         now = time.time()
         ttl = _alerts_ttl()
+        _purge_alert_cache(now)
         hit = _ALERTS_CACHE.get(key)
         if hit and hit[1] > now:
             return hit[0]
@@ -223,6 +254,7 @@ def get_alerts(loc: str) -> List[Dict[str, Any]]:
             if ev or hl:
                 out.append({"event": ev, "headline": hl})
         _ALERTS_CACHE[key] = (out, now + ttl)
+        _purge_alert_cache(now)
         return out
     except requests.RequestException:
         return []

@@ -22,7 +22,12 @@ class IntentExample:
 class IntentClassifier:
     def __init__(self):
         # Slightly richer features to improve confidence on varied phrasings
-        self.vectorizer = TfidfVectorizer(ngram_range=(1,3), min_df=1)
+        self.vectorizer = TfidfVectorizer(
+            ngram_range=(1, 3),
+            min_df=1,
+            sublinear_tf=True,
+            max_features=int(os.getenv("INTENT_MAX_FEATURES", "8000")),
+        )
         self.clf = LogisticRegression(max_iter=2000, class_weight="balanced", C=3.0)
         self.trained = False
         # Temperature < 1 sharpens probabilities, > 1 smooths them

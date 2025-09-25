@@ -1,11 +1,11 @@
-fastapi
-uvicorn
-scikit-learn
-pyyaml
-requests
-python-dotenv
-pandas
-rapidfuzz
-spacy
-torch
-transformers
+fastapi==0.114.1
+uvicorn[standard]==0.30.6
+scikit-learn==1.5.1
+pyyaml==6.0.2
+requests==2.32.3
+python-dotenv==1.0.1
+pandas==2.2.2; python_version < "3.13"
+rapidfuzz==3.9.4
+spacy==3.7.4; python_version < "3.13"
+torch==2.3.1; python_version < "3.13"
+transformers==4.43.2; python_version < "3.13"

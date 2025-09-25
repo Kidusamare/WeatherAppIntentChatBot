@@ -9,6 +9,8 @@ Intent-driven chatbot that fetches forecasts and alerts from the US National Wea
 - NWS client: points → forecast periods; active alerts by lat/lon
 - FastAPI API: `/health`, `/predict` returns intent, confidence, entities, and a user-ready reply
 - Local CSV geocoder with fuzzy matching for US places
+- Hardened in-memory session cache with TTL and caps (production-safe)
+- Optional `/session/location` endpoint to seed geolocation from clients
 
 ## Setup
 ```bash
@@ -19,19 +21,16 @@ uvicorn api.app:app --reload
 
 Important: Do not `pip install nlu` — this project’s `nlu` is a local package under `weather-bot/nlu`. The demo and CLI scripts now ensure the correct import path automatically.
 
-For tests and coverage:
+Recommended workflow:
 ```bash
-pip install -r requirements-dev.txt
-pytest -q --cov=weather-bot --cov-report=term-missing
+make install-dev  # installs pinned runtime + dev dependencies
+make test         # executes pytest suite
+make eval         # prints intent accuracy summary
 ```
 
-### Evaluation
+### Evaluation-only run
 - Add examples to `data/eval.yml` (a starter file is included).
-- Run:
-```bash
-python scripts/eval.py --train data/nlu.yml --eval data/eval.yml
-```
-This prints a classification report, confusion matrix, and per‑example confidences.
+- Run `python scripts/eval.py --train data/nlu.yml --eval data/eval.yml` for a one-off report.
 
 Notes:
 - Entity parsing is pure and returns a normalized location string (e.g., "Austin, TX", "Baltimore").
@@ -40,6 +39,10 @@ Notes:
 ## Example cURL
 ```bash
 curl -s http://127.0.0.1:8000/health
+
+curl -s -X POST http://127.0.0.1:8000/session/location \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"u1","location":"Austin, TX"}'
 
 curl -s -X POST http://127.0.0.1:8000/predict \
   -H "Content-Type: application/json" \
@@ -67,6 +70,12 @@ curl -s -X POST http://127.0.0.1:8000/predict \
   -d '{"text":"weather now in Orlando, FL in celsius","session_id":"u4"}'
 ```
 
+## Production deployment
+- Build the hardened image with `make docker-build` (multi-stage base, non-root, gunicorn worker with uvicorn).
+- Run locally with `make docker-run` or deploy the image to your orchestrator. The container exposes port `8000` and includes an OS healthcheck that hits `/health`.
+- Provide environment overrides for cache/session bounds as traffic scales (`SESSION_TTL_SECONDS`, `SESSION_MAX_ENTRIES`, `GEOCODE_CACHE_MAX`, `FORECAST_CACHE_MAX`, `ALERTS_CACHE_MAX`).
+- When a frontend captures browser/device location, call `POST /session/location` to seed the cache, then use `/predict` for natural-language follow-ups.
+
 ## How it works
 - Local geocoding loads `data/us_places.csv` (override with `US_PLACES_CSV`) and uses substring/fuzzy matching to find City, ST entries.
 - Forecast selection chooses a period by datetime entity (today/tonight/tomorrow/weekday/weekend) with sensible fallbacks.
@@ -90,12 +99,13 @@ Geocoding details:
 
 Testing notes:
 - Tests are offline-first and monkeypatch network calls (NWS, geocoder parsing).
-- Run with: `pytest -q weather-bot/tests`
+- Run with `make test` (pytest -q) or `make eval` for accuracy snapshot.
 
 ## Docker
+The Makefile wraps the recommended commands:
 ```bash
-docker build -t weather-bot .
-docker run --rm -p 8000:8000 weather-bot
+make docker-build
+make docker-run
 ```
 
 ## Demo Script
@@ -140,6 +150,8 @@ python scripts/test_spacy_location.py "tomorrow in silver spring maryland" "fore
   - When using the `bert` backend be sure `torch` and `transformers` are installed (included in `requirements*.txt`)
   - `USER_AGENT` (e.g., `weather-bot/0.1 (you@example.com)`)
   - `GEOCODE_TTL_SECONDS`, `FORECAST_TTL_SECONDS`, `ALERTS_TTL_SECONDS`
+  - `GEOCODE_CACHE_MAX`, `FORECAST_CACHE_MAX`, `ALERTS_CACHE_MAX` (cap cache entries; defaults 1000/5000/5000)
   - `WEATHER_BOT_DB_PATH`
   - `HF_MODEL_NAME`, `HF_DEVICE`
+  - `SESSION_TTL_SECONDS` (default 1800) and `SESSION_MAX_ENTRIES` (default 5000) for in-process memory bounds
   - `GEOCODE_DEBUG=1` (optional) to print provider, cache hits, and results

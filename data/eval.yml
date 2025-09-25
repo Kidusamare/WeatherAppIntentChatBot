@@ -21,3 +21,21 @@ examples:
     intent: greet
   - text: "qwertyuiop"
     intent: fallback
+  - text: "weather update please"
+    intent: get_current_weather
+  - text: "right now forecast for Austin"
+    intent: get_current_weather
+  - text: "do I need an umbrella tomorrow in Seattle"
+    intent: get_forecast
+  - text: "weekend weather for Phoenix please"
+    intent: get_forecast
+  - text: "any severe weather alerts right now"
+    intent: get_alerts
+  - text: "heat warning in phoenix?"
+    intent: get_alerts
+  - text: "remind me of the commands"
+    intent: help
+  - text: "what's up"
+    intent: greet
+  - text: "banana forecast meow"
+    intent: fallback

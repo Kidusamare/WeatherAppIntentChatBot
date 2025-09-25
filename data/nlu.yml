@@ -42,6 +42,10 @@ intents:
   - usage
   - i need help
   - show help
+  - give me a refresher
+  - remind me of the commands
+  - provide instructions again
+  - can you walk me through it
 
   get_current_weather:
   - what's the weather in Austin
@@ -81,6 +85,17 @@ intents:
   - check weather now for San Marcos, TX
   - whats the temp now in Dallas
   - how is the weather now in Austin
+  - weather update please
+  - current weather conditions
+  - what about the weather right now
+  - tell me the weather outside
+  - what is it like there now
+  - how's it looking out there
+  - do I need an umbrella right now in Seattle
+  - current weather report for Austin please
+  - weather now please
+  - what about the weather currently in Dallas
+  - right now forecast for Austin
 
   get_forecast:
   - forecast for tomorrow in Austin
@@ -140,6 +155,16 @@ intents:
   - forecast for next weekend in Orlando
   - monday forecast in Austin
   - thursday night forecast in Dallas
+  - what's the outlook tomorrow night
+  - tell me tomorrow afternoon's weather in Austin
+  - how about later this week in New York
+  - give me a three day forecast for Chicago
+  - what's expected this afternoon in Houston
+  - do you know if it will rain tomorrow evening in Boston
+  - weekend weather for Phoenix please
+  - what should I expect on Friday morning in Seattle
+  - outlook for next Tuesday night in Denver
+  - how will the rest of the week look in Austin
 
   get_alerts:
   - any weather alerts for Austin
@@ -162,6 +187,15 @@ intents:
   - do we have heat advisories in Phoenix
   - any wind advisories for Chicago
   - alert status for New York, NY
+  - any severe weather alerts right now
+  - show me hazard warnings for Austin
+  - do I need to worry about storms today in Dallas
+  - list active watches for Houston
+  - any advisories for the weekend in Seattle
+  - what warnings are in effect near 78701
+  - are there heat warnings for Phoenix today
+  - give me the latest alerts for Chicago
+  - active weather alerts please
 
   fallback:
   - bluerg

@@ -1,10 +1,10 @@
-pytest
-pytest-cov
-pandas
-numpy
-jupyter
-ipykernel
-jupyterlab
-rapidfuzz
-torch
-transformers
+pytest==8.3.2
+pytest-cov==5.0.0
+pandas==2.2.2; python_version < "3.13"
+numpy==2.1.0
+jupyter==1.1.1
+ipykernel==6.29.5
+jupyterlab==4.2.3
+rapidfuzz==3.9.4
+torch==2.3.1; python_version < "3.13"
+transformers==4.43.2; python_version < "3.13"

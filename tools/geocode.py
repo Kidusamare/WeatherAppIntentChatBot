@@ -5,6 +5,7 @@ from typing import Optional, Tuple
 import time
 import re
 import sys
+from threading import Lock
 try:
     import pandas as pd  # type: ignore
 except Exception:  # pragma: no cover
@@ -213,12 +214,34 @@ def _debug_enabled() -> bool:
     return val in {"1", "true", "yes", "on"}
 
 
-def _provider():
-    name = _provider_name()
-    return LocalGeocoder()
+_PROVIDER_INSTANCE: Optional[LocalGeocoder] = None
+_PROVIDER_LOCK = Lock()
+
+
+def _provider() -> LocalGeocoder:
+    global _PROVIDER_INSTANCE
+    with _PROVIDER_LOCK:
+        if _PROVIDER_INSTANCE is None:
+            _PROVIDER_INSTANCE = LocalGeocoder()
+        return _PROVIDER_INSTANCE
 
 
 _CACHE: dict[str, tuple[Optional[Tuple[float, float]], float]] = {}
+_CACHE_MAX = max(int(os.getenv("GEOCODE_CACHE_MAX", "1000")), 1)
+
+
+def _purge_cache(now: float) -> None:
+    expired = [key for key, (_, expiry) in _CACHE.items() if expiry <= now]
+    for key in expired:
+        _CACHE.pop(key, None)
+    if len(_CACHE) <= _CACHE_MAX:
+        return
+    # Drop oldest entries by expiry to enforce cap
+    victims = sorted(_CACHE.items(), key=lambda item: item[1][1])
+    for key, _ in victims:
+        if len(_CACHE) <= _CACHE_MAX:
+            break
+        _CACHE.pop(key, None)
 
 
 def _ttl_seconds() -> int:
@@ -251,6 +274,7 @@ def geocode(loc: str) -> Optional[Tuple[float, float]]:
         print(f"[geocode] provider={provider} query='{key}'", file=sys.stderr)
     now = time.time()
     ttl = _ttl_seconds()
+    _purge_cache(now)
     # Include provider in cache key to stay forward-compatible with future backends
     cache_key = f"{provider}::{key.lower()}"
     hit = _CACHE.get(cache_key)
@@ -258,9 +282,10 @@ def geocode(loc: str) -> Optional[Tuple[float, float]]:
         if _debug_enabled():
             print(f"[geocode] cache_hit key='{cache_key}' -> {hit[0]}", file=sys.stderr)
         return hit[0]
-    prov = _provider()
-    val = prov.resolve(key)
+    provider_instance = _provider()
+    val = provider_instance.resolve(key)
     _CACHE[cache_key] = (val, now + ttl)
+    _purge_cache(now)
     if _debug_enabled():
         print(f"[geocode] cache_store key='{cache_key}' -> {val}", file=sys.stderr)
     return val

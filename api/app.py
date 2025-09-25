@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from nlu.intent_model import IntentClassifier
 from nlu.entities import parse_location, parse_datetime, parse_units
 from core.policy import respond
+from core.memory import set_mem
 from metrics.log import log_interaction
 from nlu.loc_extractor import _get_nlp as _loc_spacy
 from tools import geocode as gc
@@ -68,3 +69,33 @@ def predict(q: Query):
         # Logging must not impact API response
         pass
     return {"intent": intent, "confidence": conf, "entities": entities, "reply": reply, "latency_ms": latency_ms}
+
+
+class LocationUpdate(BaseModel):
+    session_id: str
+    location: str
+
+
+@app.post("/session/location")
+def update_location(update: LocationUpdate):
+    loc = (update.location or "").strip()
+    if not loc:
+        return {"status": "error", "message": "location must be provided"}
+    if len(loc) > 120:
+        return {"status": "error", "message": "location is too long"}
+
+    canonical = gc.canonicalize_location(loc)
+    if not canonical:
+        return {"status": "error", "message": "unable to interpret location"}
+
+    coords = gc.geocode(canonical)
+    if not coords:
+        return {"status": "error", "message": "location not recognized"}
+
+    set_mem(update.session_id, "last_location", canonical)
+    set_mem(update.session_id, "last_entities", {"location": canonical})
+    return {
+        "status": "ok",
+        "location": canonical,
+        "coordinates": {"lat": coords[0], "lon": coords[1]},
+    }
