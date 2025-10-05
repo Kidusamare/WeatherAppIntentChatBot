@@ -15,10 +15,34 @@ from metrics.log import log_interaction
 from nlu.loc_extractor import _get_nlp as _loc_spacy
 from tools import geocode as gc
 from tools import weather_nws as nws
+from functools import lru_cache
 
 app = FastAPI(title="Weather Chatbot")
 
+@app.on_event("startup")
+async def startup_event():
+    print("🔹 Starting Weather Chatbot API...")
+    # Preload NLP and geocoding models
+    _ = _loc_spacy()
+    _ = gc._provider_name()
+    print("✅ Startup complete.")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    print("🔻 Shutting down Weather Chatbot API...")
+
+
 clf = IntentClassifier()
+
+@lru_cache(maxsize=1)
+def get_intent_classifier():
+    clf = IntentClassifier()
+    examples = clf.load_yaml("data/nlu.yml")
+    clf.fit(examples)
+    return clf
+
+clf = get_intent_classifier()
+
 examples = clf.load_yaml("data/nlu.yml")
 clf.fit(examples)
 
@@ -47,13 +71,19 @@ def health():
 @app.post("/predict")
 def predict(q: Query):
     t0 = time.time()
-    intent, conf = clf.predict(q.text)
-    entities = {
-        "location": parse_location(q.text),
-        "datetime": parse_datetime(q.text),
-        "units": parse_units(q.text),
-    }
-    reply = respond(intent, conf, entities, q.session_id)
+    try:
+        intent, conf = clf.predict(q.text)
+        entities = {
+            "location": parse_location(q.text),
+            "datetime": parse_datetime(q.text),
+            "units": parse_units(q.text),
+        }
+        reply = respond(intent, conf, entities, q.session_id)
+    except Exception as e:
+        reply = "Sorry, something went wrong while processing your request."
+        intent, conf, entities = "error", 0.0, {}
+        print("❌ Prediction error:", e)
+
     latency_ms = int((time.time() - t0) * 1000)
     try:
         log_interaction(
@@ -66,10 +96,15 @@ def predict(q: Query):
             reply=reply,
         )
     except Exception:
-        # Logging must not impact API response
         pass
-    return {"intent": intent, "confidence": conf, "entities": entities, "reply": reply, "latency_ms": latency_ms}
 
+    return {
+        "intent": intent,
+        "confidence": conf,
+        "entities": entities,
+        "reply": reply,
+        "latency_ms": latency_ms,
+    }
 
 class LocationUpdate(BaseModel):
     session_id: str
