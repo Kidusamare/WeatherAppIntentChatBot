@@ -1,6 +1,6 @@
-from nlu.intent_model import IntentClassifier
+from backend.nlu.intent_model import IntentClassifier
 from fastapi.testclient import TestClient
-from api.app import app
+from backend.api.app import app
 
 
 def _fake_forecast(loc: str, when: str = "today"):

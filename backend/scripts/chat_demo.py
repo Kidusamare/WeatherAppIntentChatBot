@@ -17,11 +17,11 @@ try:
     _load_dotenv()
 except Exception:
     pass
-from nlu import get_intent_classifier
-from tools.geocode import _provider_name as _geo_provider_name
-from nlu.entities import parse_location, parse_datetime, parse_units
-from core.policy import respond
-from core.memory import get_prompt_cache
+from backend.nlu import get_intent_classifier
+from backend.tools.geocode import _provider_name as _geo_provider_name
+from backend.nlu.entities import parse_location, parse_datetime, parse_units
+from backend.core.policy import respond
+from backend.core.memory import get_prompt_cache
 
 
 HELP_TEXT = (

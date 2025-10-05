@@ -13,7 +13,7 @@ import time
 import sys
 import requests
 
-from tools.geocode import geocode
+from backend.tools.geocode import geocode
 
 
 """Geocoding now delegated to tools.geocode.geocode(provider=demo|census)."""

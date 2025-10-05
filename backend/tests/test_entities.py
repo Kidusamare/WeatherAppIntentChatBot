@@ -1,4 +1,4 @@
-from nlu.entities import parse_location, parse_datetime, parse_units
+from backend.nlu.entities import parse_location, parse_datetime, parse_units
 
 
 def test_parse_location_city_state():

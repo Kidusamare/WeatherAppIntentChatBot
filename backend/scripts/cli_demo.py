@@ -6,8 +6,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from nlu.intent_model import IntentClassifier
-from nlu.entities import parse_location, parse_datetime, parse_units
+from backend.nlu.intent_model import IntentClassifier
+from backend.nlu.entities import parse_location, parse_datetime, parse_units
 
 def main():
     clf = IntentClassifier()

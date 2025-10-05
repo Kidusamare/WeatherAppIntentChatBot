@@ -1,4 +1,4 @@
-from scripts import eval as eval_script
+from backend.scripts import eval as eval_script
 
 
 def test_intent_classifier_accuracy():

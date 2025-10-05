@@ -14,9 +14,9 @@ from typing import Dict, Any, List
 import re
 import hashlib
 
-from core.memory import append_prompt_snapshot, get_mem, set_mem
-from tools.weather_nws import get_forecast, get_alerts
-from tools.geocode import canonicalize_location
+from backend.core.memory import append_prompt_snapshot, get_mem, set_mem
+from backend.tools.weather_nws import get_forecast, get_alerts
+from backend.tools.geocode import canonicalize_location
 
 
 def _need_location_reply() -> str:

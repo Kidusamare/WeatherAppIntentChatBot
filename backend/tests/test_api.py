@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
-from api.app import app
-from core import memory
+from backend.api.app import app
+from backend.core import memory
 
 
 def test_update_location_success(monkeypatch):

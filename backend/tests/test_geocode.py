@@ -2,7 +2,7 @@ import pytest
 
 pd = pytest.importorskip("pandas")
 
-from tools.geocode import geocode, _PROVIDER_INSTANCE
+from backend.tools.geocode import geocode, _PROVIDER_INSTANCE
 
 
 def test_local_geocode_with_csv(tmp_path, monkeypatch):

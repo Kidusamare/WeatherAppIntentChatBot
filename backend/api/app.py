@@ -1,23 +1,31 @@
-import time
 import os
+import time
+from functools import lru_cache
+
 try:
     from dotenv import load_dotenv as _load_dotenv
     _load_dotenv()
 except Exception:
     pass
+
 from fastapi import FastAPI
 from pydantic import BaseModel
-from nlu.intent_model import IntentClassifier
-from nlu.entities import parse_location, parse_datetime, parse_units
-from core.policy import respond
-from core.memory import set_mem
-from metrics.log import log_interaction
-from nlu.loc_extractor import _get_nlp as _loc_spacy
-from tools import geocode as gc
-from tools import weather_nws as nws
-from functools import lru_cache
+
+# Backend imports
+from backend.nlu.intent_model import IntentClassifier
+from backend.nlu.entities import parse_location, parse_datetime, parse_units
+from backend.core.policy import respond
+from backend.core.memory import set_mem
+from backend.metrics.log import log_interaction
+from backend.nlu.loc_extractor import _get_nlp as _loc_spacy
+from backend.tools import geocode as gc
+from backend.tools import weather_nws as nws
 
 app = FastAPI(title="Weather Chatbot")
+
+# Absolute path to the data folder
+DATA_PATH = os.path.join(os.path.dirname(__file__), "../data/nlu.yml")
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -27,24 +35,21 @@ async def startup_event():
     _ = gc._provider_name()
     print("✅ Startup complete.")
 
+
 @app.on_event("shutdown")
 async def shutdown_event():
     print("🔻 Shutting down Weather Chatbot API...")
 
 
-clf = IntentClassifier()
-
 @lru_cache(maxsize=1)
 def get_intent_classifier():
     clf = IntentClassifier()
-    examples = clf.load_yaml("data/nlu.yml")
+    examples = clf.load_yaml(DATA_PATH)
     clf.fit(examples)
     return clf
 
-clf = get_intent_classifier()
 
-examples = clf.load_yaml("data/nlu.yml")
-clf.fit(examples)
+clf = get_intent_classifier()
 
 
 class Query(BaseModel):
@@ -54,11 +59,10 @@ class Query(BaseModel):
 
 @app.get("/health")
 def health():
-    # Expose provider and TTLs for quick diagnostics
     return {
         "status": "ok",
         "geo_provider": gc._provider_name(),
-        "location_backend": (os.getenv("LOCATION_BACKEND") or "spacy"),
+        "location_backend": os.getenv("LOCATION_BACKEND") or "spacy",
         "spacy_loaded": bool(_loc_spacy()),
         "ttl": {
             "geocode": gc._ttl_seconds(),
@@ -106,6 +110,7 @@ def predict(q: Query):
         "latency_ms": latency_ms,
     }
 
+
 class LocationUpdate(BaseModel):
     session_id: str
     location: str
@@ -129,6 +134,7 @@ def update_location(update: LocationUpdate):
 
     set_mem(update.session_id, "last_location", canonical)
     set_mem(update.session_id, "last_entities", {"location": canonical})
+
     return {
         "status": "ok",
         "location": canonical,

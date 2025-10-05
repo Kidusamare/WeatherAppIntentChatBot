@@ -6,7 +6,7 @@ from typing import List, Tuple
 
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 
-from nlu import get_intent_classifier
+from backend.nlu import get_intent_classifier
 
 
 def load_eval_yaml(path: str) -> Tuple[List[str], List[str]]:
