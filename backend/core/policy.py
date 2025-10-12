@@ -44,6 +44,8 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
     # Work on a copy so caller retains raw extraction
     entities = dict(entities or {})
 
+    explicit_when_requested = bool(entities.get("datetime"))
+
     # Track resolved context so we can cache it for future turns
     resolved_loc = entities.get("location")
     resolved_when = entities.get("datetime")
@@ -97,6 +99,68 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
                 set_mem(session_id, "last_location", payload["location"])
         return reply_text
 
+    def _time_label(when_value: str | None, period_name: str | None, explicit: bool) -> str:
+        if not explicit:
+            return "Right now"
+        w = (when_value or "").lower()
+        mapping = {
+            "today": "Today",
+            "today_morning": "This morning",
+            "today_afternoon": "This afternoon",
+            "today_evening": "This evening",
+            "tonight": "Tonight",
+            "tomorrow": "Tomorrow",
+            "tomorrow_morning": "Tomorrow morning",
+            "tomorrow_night": "Tomorrow night",
+            "weekend": "This weekend",
+        }
+        weekdays = {
+            "monday": "Monday",
+            "tuesday": "Tuesday",
+            "wednesday": "Wednesday",
+            "thursday": "Thursday",
+            "friday": "Friday",
+            "saturday": "Saturday",
+            "sunday": "Sunday",
+        }
+        if w in mapping:
+            return mapping[w]
+        if w in weekdays:
+            return weekdays[w]
+        if when_value:
+            return when_value.replace("_", " ").strip().title()
+        if period_name:
+            return period_name.strip()
+        return "Today"
+
+    def _format_forecast_reply(
+        loc_text: str,
+        when_value: str,
+        period_name: str,
+        description: str,
+        temp_detail: str,
+        explicit: bool,
+    ) -> str:
+        label = _time_label(when_value, period_name, explicit)
+        summary = (description or "Forecast unavailable").strip()
+        if summary:
+            label_norm = label.lower().rstrip(":")
+            summary_norm = summary.lower()
+            if label_norm and summary_norm.startswith(label_norm):
+                trimmed = summary[len(label) :].lstrip(" :,-") or summary
+                if trimmed != summary:
+                    summary = trimmed
+            if summary and summary[0].islower():
+                summary = summary[0].upper() + summary[1:]
+        if summary and summary[-1] not in ".!?":
+            summary = summary + "."
+        detail = temp_detail.strip()
+        if detail:
+            if detail[-1] not in ".!?":
+                detail = detail + "."
+            summary = f"{summary} {detail}".strip()
+        return f"{label} in {loc_text}: {summary}".strip()
+
     # Greeting/help
     if intent == "greet":
         variants = [
@@ -117,7 +181,7 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
     # Common location resolution for weather/alerts
     loc = entities.get("location") if entities else None
     if loc:
-        can_loc = canonicalize_location(loc)
+        can_loc = canonicalize_location(loc) or (loc.strip().title() if isinstance(loc, str) else loc)
         # Store canonical location if it includes a state, otherwise keep raw
         if _is_city_state(can_loc):
             set_mem(session_id, "last_location", can_loc)
@@ -149,28 +213,19 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
         if intent == "get_current_weather":
             when = "today"
         resolved_when = when
-        fc = get_forecast(loc, when)
+        when_key = (when or "").lower()
+        explicit_when = explicit_when_requested or when_key not in {"today"}
+        requested_units = (entities.get("units") if entities else None) or "imperial"
+        fc = get_forecast(loc, when, requested_units)
         if "error" in fc:
             reply = f"Sorry, I couldn't fetch the forecast for {loc}. {fc['error']}"
             return _capture(reply)
         period = fc.get("period") or when.title()
         short = fc.get("shortForecast") or "Forecast unavailable"
         temp = fc.get("temperature")
-        fc_unit = (fc.get("unit") or "F").upper()
-        # Honor requested display units (default: imperial)
-        requested_units = (entities.get("units") if entities else None) or "imperial"
-        display_unit = fc_unit
-        if temp is not None:
-            if requested_units == "metric" and fc_unit == "F":
-                # Convert F -> C (rounded to nearest int)
-                temp = round((temp - 32) * 5 / 9)
-                display_unit = "C"
-            elif requested_units == "imperial" and fc_unit == "C":
-                # Convert C -> F (defensive; NWS usually returns F)
-                temp = round((temp * 9 / 5) + 32)
-                display_unit = "F"
-        temp_part = f" Around {temp}°{display_unit}." if temp is not None else ""
-        base = f"{period} in {loc}: {short}.{temp_part}".strip()
+        display_unit = (fc.get("unit") or "F").upper()
+        temp_part = f"Around {temp} degrees {display_unit}" if temp is not None else ""
+        base = _format_forecast_reply(loc, when, period, short, temp_part, explicit_when)
         # Add a gentle, deterministic suggestion variant
         suffix = _pick([
             "",
@@ -182,6 +237,7 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
         set_mem(session_id, "pending_intent", None)
         set_mem(session_id, "pending_when", None)
         resolved_loc = loc
+        resolved_when = when
         resolved_units = requested_units
         reply = (base + suffix).strip()
         return _capture(reply)
@@ -217,7 +273,10 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
             when = pending_when or ((entities.get("datetime") if entities else None) or "today")
             if pending_intent == "get_current_weather":
                 when = "today"
-            fc = get_forecast(loc, when)
+            when_key = (when or "").lower()
+            explicit_when = explicit_when_requested or bool(pending_when) or when_key not in {"today"}
+            requested_units = (entities.get("units") if entities else None) or "imperial"
+            fc = get_forecast(loc, when, requested_units)
             if "error" in fc:
                 resolved_loc = loc
                 resolved_when = when
@@ -226,18 +285,9 @@ def respond(intent: str, conf: float, entities: Dict[str, Any], session_id: str)
             period = fc.get("period") or str(when).title()
             short = fc.get("shortForecast") or "Forecast unavailable"
             temp = fc.get("temperature")
-            fc_unit = (fc.get("unit") or "F").upper()
-            requested_units = (entities.get("units") if entities else None) or "imperial"
-            display_unit = fc_unit
-            if temp is not None:
-                if requested_units == "metric" and fc_unit == "F":
-                    temp = round((temp - 32) * 5 / 9)
-                    display_unit = "C"
-                elif requested_units == "imperial" and fc_unit == "C":
-                    temp = round((temp * 9 / 5) + 32)
-                    display_unit = "F"
-            temp_part = f" Around {temp}°{display_unit}." if temp is not None else ""
-            base = f"{period} in {loc}: {short}.{temp_part}".strip()
+            display_unit = (fc.get("unit") or "F").upper()
+            temp_part = f"Around {temp} degrees {display_unit}" if temp is not None else ""
+            base = _format_forecast_reply(loc, when, period, short, temp_part, explicit_when)
             suffix = _pick([
                 "",
                 " You can ask for alerts, too.",

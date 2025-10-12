@@ -163,7 +163,7 @@ def _purge_alert_cache(now: float) -> None:
 
 def _forecast_ttl() -> int:
     try:
-        return int(os.getenv("FORECAST_TTL_SECONDS", "600"))
+        return int(os.getenv("FORECAST_TTL_SECONDS", "1800"))
     except ValueError:
         return 600
 
@@ -175,7 +175,36 @@ def _alerts_ttl() -> int:
         return 120
 
 
-def get_forecast(loc: str, when: str = "today") -> dict:
+def _resolve_unit(unit: str | None) -> Tuple[str, str]:
+    code = (unit or "imperial").strip().lower()
+    if code in {"metric", "c", "celsius"}:
+        return "metric", "C"
+    return "imperial", "F"
+
+
+def _cast_temperature(temp: Optional[int], source_unit: str, desired_unit: str) -> Optional[int]:
+    if temp is None:
+        return None
+    source = source_unit.upper()
+    desired = desired_unit.upper()
+    if source == desired:
+        return temp
+    if source == "F" and desired == "C":
+        return round((temp - 32) * 5 / 9)
+    if source == "C" and desired == "F":
+        return round((temp * 9 / 5) + 32)
+    return temp
+
+
+def _forecast_cache_key(loc: str, when: str, unit: str, signature: str | None = None) -> Tuple[str, str, str, str | None]:
+    norm_loc = str(loc).strip().title()
+    when_norm = (when or "today").lower()
+    unit_key = unit.upper()
+    sig = (signature or "").strip() or None
+    return norm_loc, when_norm, unit_key, sig
+
+
+def get_forecast(loc: str, when: str = "today", units: str = "imperial") -> dict:
     """Return a dict with selected forecast period info for the location.
 
     On success:
@@ -188,13 +217,22 @@ def get_forecast(loc: str, when: str = "today") -> dict:
     lat, lon = coords
     try:
         # Cache by (normalized location, when)
-        key = (str(loc).strip().title(), (when or "today").lower())
+        _, unit_symbol = _resolve_unit(units)
+        norm_loc = str(loc).strip().title()
+        when_norm = (when or "today").lower()
         now = time.time()
         ttl = _forecast_ttl()
         _purge_forecast_cache(now)
-        hit = _FORECAST_CACHE.get(key)
-        if hit and hit[1] > now:
-            return hit[0]
+        candidate_value: Optional[dict] = None
+        for cache_key, (payload, expiry) in list(_FORECAST_CACHE.items()):
+            if expiry <= now:
+                continue
+            key_loc, key_when, key_unit, _ = cache_key
+            if key_loc == norm_loc and key_when == when_norm and key_unit == unit_symbol:
+                candidate_value = payload
+                break
+        if candidate_value is not None:
+            return candidate_value
         pts = nws_points(lat, lon)
         forecast_url = (
             pts.get("properties", {}).get("forecast")
@@ -209,13 +247,28 @@ def get_forecast(loc: str, when: str = "today") -> dict:
         name = period.get("name") or when.title()
         short = period.get("shortForecast") or "Forecast unavailable"
         temp = period.get("temperature")
-        unit = period.get("temperatureUnit") or "F"
+        source_unit = (period.get("temperatureUnit") or "F").upper()
+        converted_temp = _cast_temperature(temp, source_unit, unit_symbol)
+        # Update cache key with resolved startTime signature now that we have it.
+        key_signature = None
+        start_time = period.get("startTime")
+        if isinstance(start_time, str) and start_time:
+            key_signature = start_time[:16]  # include date + hour for uniqueness
+        key = _forecast_cache_key(loc, when, unit_symbol, key_signature)
+        # Remove stale entries for same loc/when/unit before storing refreshed data.
+        for existing_key in list(_FORECAST_CACHE.keys()):
+            if existing_key[:3] == (norm_loc, when_norm, unit_symbol):
+                _FORECAST_CACHE.pop(existing_key, None)
         result = {
             "location": loc,
             "period": name,
             "shortForecast": short,
-            "temperature": temp,
-            "unit": unit,
+            "temperature": converted_temp,
+            "unit": unit_symbol,
+            "sourceUnit": source_unit,
+            "startTime": period.get("startTime"),
+            "endTime": period.get("endTime"),
+            "cacheKey": f"weather:{str(loc).strip().title()}:{(key_signature or (when or 'today').lower())}:{unit_symbol}",
         }
         _FORECAST_CACHE[key] = (result, now + ttl)
         _purge_forecast_cache(now)
