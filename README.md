@@ -11,6 +11,7 @@ Intent-driven chatbot that fetches forecasts and alerts from the US National Wea
 - Local CSV geocoder with fuzzy matching for US places
 - Hardened in-memory session cache with TTL and caps (production-safe)
 - Optional `/session/location` endpoint to seed geolocation from clients
+- Backend speech pipeline powered by faster-whisper (speech-to-text) and Piper (streamed text-to-speech)
 
 ## Setup
 ```bash
@@ -34,7 +35,26 @@ make eval         # prints intent accuracy summary
 
 Notes:
 - Entity parsing is pure and returns a normalized location string (e.g., "Austin, TX", "Baltimore").
-- The geocoder resolves that string to lat/lon; results are cached in‑process.
+- The geocoder resolves that string to lat/lon; results are cached in-process.
+
+### Voice support (faster-whisper + Piper)
+1. Download a Piper voice model (.onnx plus .json) and place the files under `backend/data/voices/`.
+   Example (en_US-amy-medium):
+   ```bash
+   mkdir -p backend/data/voices
+   curl -L -o backend/data/voices/en_US-amy-medium.onnx https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US-amy-medium.onnx
+   curl -L -o backend/data/voices/en_US-amy-medium.json https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US-amy-medium.json
+   ```
+2. Optional environment overrides:
+   - `PIPER_VOICE` – voice file stem or explicit `.onnx` path (default `en_US-amy-medium`)
+   - `PIPER_VOICE_DIR` – directory containing voice files (default `backend/data/voices`)
+   - `WHISPER_MODEL` – faster-whisper model size (default `base`)
+   - `WHISPER_DEVICE`, `WHISPER_COMPUTE_TYPE` – override auto GPU/CPU detection
+3. New API endpoints:
+   - `POST /speech/transcribe` (multipart/form-data `audio`) → `{ text, language, audio_seconds }`
+   - `GET` or `POST /speech/synthesize` (JSON body or `?text=`) → streamed `audio/wav`
+
+The React UI now captures microphone input with `MediaRecorder`, uploads a WAV snapshot to faster-whisper, and plays replies by streaming Piper audio directly—no temporary files written on the server.
 
 ## Example cURL
 ```bash

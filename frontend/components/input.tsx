@@ -1,11 +1,74 @@
 import type { FC, ChangeEvent, KeyboardEvent } from "react";
 import { useEffect, useRef, useState } from "react";
+import { transcribeAudio } from "../src/backend";
 
 export interface InputProps {
   onSend: (text: string, options?: { viaVoice?: boolean }) => Promise<void>;
 }
 
 type InputMode = "voice" | "text";
+
+const encodeWav = (audioBuffer: AudioBuffer): ArrayBuffer => {
+  const channelCount = audioBuffer.numberOfChannels;
+  const sampleRate = audioBuffer.sampleRate;
+  const sampleLength = audioBuffer.length;
+
+  const monoData = new Float32Array(sampleLength);
+  for (let channel = 0; channel < channelCount; channel += 1) {
+    const channelData = audioBuffer.getChannelData(channel);
+    for (let i = 0; i < sampleLength; i += 1) {
+      monoData[i] += channelData[i];
+    }
+  }
+  for (let i = 0; i < sampleLength; i += 1) {
+    monoData[i] /= channelCount;
+  }
+
+  const bytesPerSample = 2;
+  const dataSize = sampleLength * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  let offset = 0;
+  const writeString = (value: string) => {
+    for (let i = 0; i < value.length; i += 1) {
+      view.setUint8(offset + i, value.charCodeAt(i));
+    }
+    offset += value.length;
+  };
+
+  writeString("RIFF");
+  view.setUint32(offset, 36 + dataSize, true);
+  offset += 4;
+  writeString("WAVE");
+  writeString("fmt ");
+  view.setUint32(offset, 16, true);
+  offset += 4;
+  view.setUint16(offset, 1, true);
+  offset += 2;
+  view.setUint16(offset, 1, true);
+  offset += 2;
+  view.setUint32(offset, sampleRate, true);
+  offset += 4;
+  view.setUint32(offset, sampleRate * bytesPerSample, true);
+  offset += 4;
+  view.setUint16(offset, bytesPerSample, true);
+  offset += 2;
+  view.setUint16(offset, 8 * bytesPerSample, true);
+  offset += 2;
+  writeString("data");
+  view.setUint32(offset, dataSize, true);
+  offset += 4;
+
+  for (let i = 0; i < sampleLength; i += 1) {
+    const sample = Math.max(-1, Math.min(1, monoData[i]));
+    const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+    view.setInt16(offset, intSample, true);
+    offset += 2;
+  }
+
+  return buffer;
+};
 
 const Input: FC<InputProps> = ({ onSend }) => {
   const [mode, setMode] = useState<InputMode>("voice");
@@ -15,64 +78,136 @@ const Input: FC<InputProps> = ({ onSend }) => {
   const [voiceSupported, setVoiceSupported] = useState(false);
   const [checkedVoiceSupport, setCheckedVoiceSupport] = useState(false);
   const [hasAttemptedAutoStart, setHasAttemptedAutoStart] = useState(false);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
 
-  type SpeechRecognitionConstructor = new () => SpeechRecognition;
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const discardNextRecordingRef = useRef(false);
 
-  const resolveSpeechRecognition = (): SpeechRecognitionConstructor | undefined => {
-    if (typeof window === "undefined") return undefined;
-    const win = window as Window & {
-      webkitSpeechRecognition?: SpeechRecognitionConstructor;
-      SpeechRecognition?: SpeechRecognitionConstructor;
-    };
-    return win.SpeechRecognition || win.webkitSpeechRecognition;
+  const cleanupStream = () => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+    recorderRef.current = null;
+    chunksRef.current = [];
   };
 
-  const initializeRecognition = () => {
-    const SpeechRecognitionCtor = resolveSpeechRecognition();
-    if (!SpeechRecognitionCtor) return;
+  const ensureAudioContext = () => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext();
+    }
+    return audioContextRef.current;
+  };
 
-    const recognition = new SpeechRecognitionCtor();
-    recognition.lang = "en-US";
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+  const convertBlobToWav = async (blob: Blob): Promise<Blob> => {
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioContext = ensureAudioContext();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+    const wavBuffer = encodeWav(audioBuffer);
+    return new Blob([wavBuffer], { type: "audio/wav" });
+  };
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const transcript = event.results[0][0]?.transcript ?? "";
-      setIsListening(false);
-      const cleaned = transcript.trim();
-      if (cleaned) {
-        setLastVoiceInput(cleaned);
-        void sendMessage(cleaned, true);
+  const startRecording = async () => {
+    if (!voiceSupported) return;
+    setVoiceError(null);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+
+      const options: MediaRecorderOptions = {};
+      if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm")) {
+        options.mimeType = "audio/webm";
       }
-    };
 
-    recognition.onerror = () => {
+      const recorder = new MediaRecorder(stream, options);
+      chunksRef.current = [];
+      discardNextRecordingRef.current = false;
+
+      recorder.ondataavailable = (event: BlobEvent) => {
+        if (event.data && event.data.size > 0) {
+          chunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onerror = (event) => {
+        setVoiceError(event.error?.message ?? "Microphone error encountered.");
+      };
+
+      recorder.onstop = async () => {
+        const shouldDiscard = discardNextRecordingRef.current;
+        discardNextRecordingRef.current = false;
+
+        try {
+          if (shouldDiscard || chunksRef.current.length === 0) {
+            return;
+          }
+
+          const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
+          chunksRef.current = [];
+
+          const wavBlob = await convertBlobToWav(blob);
+          const transcription = await transcribeAudio(wavBlob);
+          const transcript = transcription.text?.trim();
+
+          if (transcript) {
+            setLastVoiceInput(transcript);
+            await onSend(transcript, { viaVoice: true });
+          } else {
+            setVoiceError("Could not understand audio. Please try again.");
+          }
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : "Unable to transcribe audio.";
+          setVoiceError(reason);
+        } finally {
+          cleanupStream();
+          setIsListening(false);
+        }
+      };
+
+      recorderRef.current = recorder;
+      recorder.start();
+      setIsListening(true);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Unable to access microphone.";
+      setVoiceError(reason);
+      cleanupStream();
       setIsListening(false);
-    };
+    }
+  };
 
-    recognition.onend = () => {
+  const stopRecording = (discard = false) => {
+    discardNextRecordingRef.current = discard;
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+    } else {
+      cleanupStream();
       setIsListening(false);
-    };
-
-    recognitionRef.current = recognition;
+    }
   };
 
   useEffect(() => {
-    const SpeechRecognitionCtor = resolveSpeechRecognition();
-    if (!SpeechRecognitionCtor) {
-      setVoiceSupported(false);
-      setCheckedVoiceSupport(true);
-      return;
-    }
-
-    setVoiceSupported(true);
-    initializeRecognition();
+    const supported =
+      typeof navigator !== "undefined" &&
+      !!navigator.mediaDevices?.getUserMedia &&
+      typeof MediaRecorder !== "undefined";
+    setVoiceSupported(supported);
     setCheckedVoiceSupport(true);
 
     return () => {
-      recognitionRef.current?.stop();
-      recognitionRef.current = null;
+      discardNextRecordingRef.current = true;
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        recorderRef.current.stop();
+      }
+      cleanupStream();
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => undefined);
+        audioContextRef.current = null;
+      }
     };
   }, []);
 
@@ -84,8 +219,7 @@ const Input: FC<InputProps> = ({ onSend }) => {
 
   useEffect(() => {
     if (mode === "text" && isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
+      stopRecording(true);
     }
     if (mode === "voice") {
       setText("");
@@ -95,12 +229,7 @@ const Input: FC<InputProps> = ({ onSend }) => {
   useEffect(() => {
     if (!voiceSupported || hasAttemptedAutoStart || mode !== "voice") return;
     setHasAttemptedAutoStart(true);
-    try {
-      recognitionRef.current?.start();
-      setIsListening(true);
-    } catch (error) {
-      setIsListening(false);
-    }
+    void startRecording();
   }, [mode, voiceSupported, hasAttemptedAutoStart]);
 
   const sendMessage = async (value?: string, viaVoice = false) => {
@@ -132,21 +261,11 @@ const Input: FC<InputProps> = ({ onSend }) => {
     }
 
     if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
+      stopRecording();
       return;
     }
 
-    if (!recognitionRef.current) {
-      initializeRecognition();
-    }
-
-    try {
-      recognitionRef.current?.start();
-      setIsListening(true);
-    } catch (error) {
-      setIsListening(false);
-    }
+    void startRecording();
   };
 
   return (
@@ -188,7 +307,12 @@ const Input: FC<InputProps> = ({ onSend }) => {
             <span>{isListening ? "Stop Listening" : "Tap to Speak"}</span>
           </button>
           <div className="voice-status">
-            <span>{voiceSupported ? "Powered by your browser microphone" : "Voice capture unavailable in this browser"}</span>
+            <span>
+              {voiceSupported
+                ? "Voice capture via faster-whisper backend"
+                : "Voice capture unavailable in this browser"}
+            </span>
+            {voiceError && <div className="voice-error">{voiceError}</div>}
             {lastVoiceInput && <div className="voice-last-input">Last question: "{lastVoiceInput}"</div>}
           </div>
         </div>

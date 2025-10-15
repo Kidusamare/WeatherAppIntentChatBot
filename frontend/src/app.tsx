@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Hero from "../components/hero";
 import Input from "../components/input";
 import Window from "../components/window";
-import { sendQuery } from "./backend";
+import { getSpeechStreamUrl, sendQuery } from "./backend";
 import "./App.css";
 
 type MessageEntry = {
@@ -14,8 +14,8 @@ type MessageEntry = {
 
 function App() {
   const [messages, setMessages] = useState<MessageEntry[]>([]);
-  const [voice, setVoice] = useState<SpeechSynthesisVoice | null>(null);
   const session_id = useMemo(() => crypto.randomUUID(), []);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const handleSend = async (text: string, options: { viaVoice?: boolean } = {}) => {
     const viaVoice = options.viaVoice ?? false;
@@ -37,86 +37,52 @@ function App() {
   };
 
   useEffect(() => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    const synth = window.speechSynthesis;
-
-    const pickVoice = () => {
-      const voices = synth.getVoices();
-      if (!voices.length) return;
-
-      const preferredPatterns = [
-        /jenny/i,
-        /samantha/i,
-        /aria/i,
-        /allison/i,
-        /femme/i,
-        /female/i,
-        /en-us/i,
-      ];
-
-      for (const pattern of preferredPatterns) {
-        const found = voices.find((v) => pattern.test(v.name) || pattern.test(v.lang));
-        if (found) {
-          setVoice(found);
-          return;
-        }
-      }
-
-      const fallback = voices.find((v) => v.lang.toLowerCase().startsWith("en")) ?? voices[0];
-      setVoice(fallback ?? null);
-    };
-
-    if (synth.getVoices().length) {
-      pickVoice();
-      return;
-    }
-
-    const handler = () => {
-      pickVoice();
-    };
-
-    synth.addEventListener("voiceschanged", handler);
-    synth.onvoiceschanged = handler;
-
-    return () => {
-      synth.removeEventListener("voiceschanged", handler);
-      synth.onvoiceschanged = null;
-    };
-  }, []);
-
-  useEffect(() => {
     if (!messages.length) return;
     const lastMessage = messages[messages.length - 1];
     if (lastMessage.isUser || !lastMessage.speak) return;
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    let cancelled = false;
 
-    const utterance = new SpeechSynthesisUtterance(lastMessage.text);
-    if (voice) {
-      utterance.voice = voice;
-    }
-    utterance.rate = 1.12;
-    utterance.pitch = 1.05;
-    utterance.volume = 0.85;
-
-    const speak = () => {
+    const play = async () => {
       try {
-        window.speechSynthesis.cancel();
-        if (typeof window.speechSynthesis.resume === "function") {
-          window.speechSynthesis.resume();
-        }
-        window.speechSynthesis.speak(utterance);
+        const url = await getSpeechStreamUrl(lastMessage.text);
+        if (cancelled) return;
+
+        const audio = new Audio(url);
+        audioRef.current?.pause();
+        audioRef.current = audio;
+
+        audio.addEventListener(
+          "ended",
+          () => {
+            if (audioRef.current === audio) {
+              audioRef.current = null;
+            }
+          },
+          { once: true },
+        );
+
+        await audio.play();
       } catch (error) {
-        console.error("Speech synthesis error:", error);
+        console.error("Speech playback error:", error);
       }
     };
 
-    // Delay slightly so the first response after microphone activation plays reliably.
-    const speakTimer = window.setTimeout(speak, 40);
+    void play();
 
     return () => {
-      window.clearTimeout(speakTimer);
+      cancelled = true;
     };
-  }, [messages, voice]);
+  }, [messages]);
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = "";
+        audioRef.current = null;
+      }
+    };
+  }, []);
 
   return (
     <div className="app-shell">
