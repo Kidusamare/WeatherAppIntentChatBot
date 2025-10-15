@@ -83,3 +83,8 @@ __pypackages__/
 # Local data scratch (keep training data like data/nlu.yml)
 data/**/*.tmp
 data/**/.cache/
+
+#Frontend depedencies are clashing with Collaborator
+frontend/package.json
+frontend/package-lock.json
+frontend/node_modules/
