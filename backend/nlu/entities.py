@@ -126,7 +126,13 @@ def parse_location(text: str) -> Optional[str]:
     simple = text.strip()
     if re.fullmatch(r"[A-Za-z]+(?:\s[A-Za-z]+){0,2}", simple):
         low_simple = simple.lower()
-        if low_simple not in LOCATION_STOPWORDS and low_simple not in WEEKDAYS:
+        words = {w.strip() for w in low_simple.split() if w.strip()}
+        if (
+            low_simple not in LOCATION_STOPWORDS
+            and low_simple not in WEEKDAYS
+            and not words.intersection(LOCATION_STOPWORDS)
+            and not words.intersection(WEEKDAYS)
+        ):
             return simple.title()
     return None
 
